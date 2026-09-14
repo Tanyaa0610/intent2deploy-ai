@@ -1,0 +1,14 @@
+{
+  "id": "task_002",
+  "title": "Fix the null-reference bug in the order service",
+  "category": "bug_fix",
+  "intent": "Fix the null-reference bug in the order service.",
+  "repository": "demo-repository",
+  "expected_files": ["src/orders/service.py"],
+  "acceptance_criteria": [
+    "Requesting the total for an unknown order id raises a clear domain error instead of crashing",
+    "Existing order-total calculation for valid orders is unaffected"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "easy"
+}

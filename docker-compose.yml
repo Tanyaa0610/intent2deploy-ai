@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=development
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - LLM_MODE=${LLM_MODE:-mock}
+      - MODEL_NAME=${MODEL_NAME:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_OWNER=${GITHUB_OWNER:-}
+      - GITHUB_REPO=${GITHUB_REPO:-}
+      - VECTOR_STORE=chroma
+      - CHROMA_PERSIST_DIR=/data/chroma_data
+      - DATABASE_URL=sqlite:////data/intent2deploy.db
+      - WORKSPACES_DIR=/data/workspaces
+      - MAX_FILES_CHANGED=${MAX_FILES_CHANGED:-15}
+      - MAX_PATCH_LINES=${MAX_PATCH_LINES:-1000}
+      - MAX_REPAIR_ATTEMPTS=${MAX_REPAIR_ATTEMPTS:-2}
+      - COMMAND_TIMEOUT_SECONDS=${COMMAND_TIMEOUT_SECONDS:-120}
+    volumes:
+      - i2d_data:/data
+      - ./demo-repository:/demo-repository
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  i2d_data:

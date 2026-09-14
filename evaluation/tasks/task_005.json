@@ -1,0 +1,15 @@
+{
+  "id": "task_005",
+  "title": "Add input validation to the registration endpoint",
+  "category": "validation_error_handling",
+  "intent": "Add input validation to the registration endpoint.",
+  "repository": "demo-repository",
+  "expected_files": ["src/api/app.py", "src/validation/helpers.py"],
+  "acceptance_criteria": [
+    "Registration rejects malformed email addresses with HTTP 400",
+    "Registration rejects weak passwords with HTTP 400",
+    "Valid registrations continue to succeed"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "easy"
+}

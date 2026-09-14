@@ -1,0 +1,16 @@
+{
+  "id": "task_001",
+  "title": "Add a password-reset feature",
+  "category": "feature_addition",
+  "intent": "Add a password reset feature. Create appropriate tests and make sure existing authentication functionality is not affected.",
+  "repository": "demo-repository",
+  "expected_files": ["src/auth/service.py"],
+  "acceptance_criteria": [
+    "User can request a password-reset token",
+    "Reset tokens expire after a fixed TTL",
+    "Invalid or already-used reset tokens are rejected",
+    "Existing login/registration behavior is unaffected"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "medium"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "task_004",
+  "title": "Add an endpoint to cancel an order",
+  "category": "api_modification",
+  "intent": "Add an API endpoint that allows cancelling an existing order.",
+  "repository": "demo-repository",
+  "expected_files": ["src/api/app.py", "src/orders/service.py"],
+  "acceptance_criteria": [
+    "A DELETE or POST endpoint exists to cancel an order",
+    "Cancelling an unknown order returns a clear error response"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "medium"
+}

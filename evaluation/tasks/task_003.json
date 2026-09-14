@@ -1,0 +1,14 @@
+{
+  "id": "task_003",
+  "title": "Add tests for the order service's missing-order edge case",
+  "category": "test_generation",
+  "intent": "Add tests for the order service covering what happens when an order does not exist, and fix any bug you find in the process.",
+  "repository": "demo-repository",
+  "expected_files": ["src/orders/service.py", "tests/test_orders.py"],
+  "acceptance_criteria": [
+    "A new test reproduces the missing-order case",
+    "The test suite passes after the fix"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "easy"
+}
