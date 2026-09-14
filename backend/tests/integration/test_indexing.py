@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.services.rag.indexer import index_repository
 from app.services.rag.retriever import retrieve
