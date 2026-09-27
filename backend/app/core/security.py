@@ -55,9 +55,14 @@ IGNORED_FILE_PATTERNS = [
 # secrets before they are sent to the LLM or committed. This is a coarse
 # heuristic scanner, not a guarantee of secret detection.
 SECRET_PATTERNS = [
-    re.compile(r"(?i)api[_-]?key\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{16,}"),
-    re.compile(r"(?i)secret\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{8,}"),
-    re.compile(r"(?i)password\s*[:=]\s*['\"]?\S{4,}"),
+    # Require a quoted literal value (not a type annotation or bare
+    # identifier like `password: str` / `new_password=raw_password`) so
+    # these patterns flag hardcoded secret VALUES, not parameter names —
+    # source code legitimately uses words like "password"/"secret" as
+    # identifiers far more often than it hardcodes real credentials.
+    re.compile(r"(?i)api[_-]?key\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]"),
+    re.compile(r"(?i)secret\s*[:=]\s*['\"][A-Za-z0-9_\-]{8,}['\"]"),
+    re.compile(r"(?i)password\s*[:=]\s*['\"]\S{4,}['\"]"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"ghp_[A-Za-z0-9]{36}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),

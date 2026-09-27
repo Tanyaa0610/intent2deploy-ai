@@ -21,6 +21,11 @@ class IndexRepositoryRequest(BaseModel):
     path: str
 
 
+class CloneRepositoryRequest(BaseModel):
+    project_id: str
+    url: str
+
+
 class RepositoryResponse(BaseModel):
     id: str
     project_id: str
@@ -38,6 +43,7 @@ class CreateWorkflowRequest(BaseModel):
     base_branch: str = "main"
     test_command: str = ""
     build_command: str = ""
+    environment: str = "sandbox"
 
 
 class WorkflowResponse(BaseModel):
@@ -48,10 +54,12 @@ class WorkflowResponse(BaseModel):
     base_branch: str
     branch_name: str
     state: str
+    environment: str
     created_at: datetime
     updated_at: datetime
     repair_attempts: int
     human_intervention_count: int
+    baseline_tests_passed: bool | None = None
     indexing_ms: int | None
     retrieval_ms: int | None
     planning_ms: int | None

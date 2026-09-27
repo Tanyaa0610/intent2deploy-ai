@@ -1,8 +1,10 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { DashboardPage } from "./pages/DashboardPage";
 import { NewWorkflowPage } from "./pages/NewWorkflowPage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { EvaluationPage } from "./pages/EvaluationPage";
+import { GuardrailsPage } from "./pages/GuardrailsPage";
+import { RepositoryIntelligencePage } from "./pages/RepositoryIntelligencePage";
 
 function App() {
   return (
@@ -14,8 +16,14 @@ function App() {
           <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
             Dashboard
           </NavLink>
-          <NavLink to="/new" className={({ isActive }) => (isActive ? "active" : "")}>
+          <NavLink to="/new-workflow" className={({ isActive }) => (isActive ? "active" : "")}>
             New Workflow
+          </NavLink>
+          <NavLink to="/repository" className={({ isActive }) => (isActive ? "active" : "")}>
+            Repository Intelligence
+          </NavLink>
+          <NavLink to="/guardrails" className={({ isActive }) => (isActive ? "active" : "")}>
+            Guardrails & Safety
           </NavLink>
           <NavLink to="/evaluation" className={({ isActive }) => (isActive ? "active" : "")}>
             Evaluation
@@ -25,8 +33,11 @@ function App() {
       <main className="main-content">
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/new" element={<NewWorkflowPage />} />
+          <Route path="/new-workflow" element={<NewWorkflowPage />} />
+          <Route path="/new" element={<Navigate to="/new-workflow" replace />} />
           <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+          <Route path="/repository" element={<RepositoryIntelligencePage />} />
+          <Route path="/guardrails" element={<GuardrailsPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
         </Routes>
       </main>

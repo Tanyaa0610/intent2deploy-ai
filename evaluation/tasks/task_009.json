@@ -4,11 +4,24 @@
   "category": "regression_sensitive_refactor",
   "intent": "Refactor the password hashing logic in the authentication service into a clearer structure without changing existing behavior.",
   "repository": "demo-repository",
-  "expected_files": ["src/auth/service.py"],
+  "expected_files": [
+    "src/auth/service.py"
+  ],
   "acceptance_criteria": [
     "All existing authentication tests continue to pass unchanged",
     "No externally observable behavior changes"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "medium"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "Refactor could accidentally change salt/hash behavior and invalidate existing credentials"
+  ],
+  "expected_tests": [
+    "full existing authentication regression suite"
+  ],
+  "expected_failure_modes": [
+    "Refactored hashing produces different output for the same input"
+  ]
 }

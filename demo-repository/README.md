@@ -13,6 +13,9 @@ src/
   orders/      order service (contains a deliberate bug for the bug-fix demo task)
   validation/  input validation helpers (deliberately under-used, for the
                "add input validation" demo task)
+  payments/    payment provider client + service (deliberately lacks
+               idempotency protection, for the production-aware
+               payment-reliability demo task)
   api/         FastAPI HTTP layer wiring the above together
 tests/         pytest test suite (regression baseline)
 ```
@@ -36,3 +39,8 @@ pytest
   validation" benchmark task).
 - There is no password-reset flow yet (used by the primary "add a
   password-reset feature" demo task).
+- `PaymentService.charge_order` has no idempotency-key protection: a client
+  retry after a provider timeout (or a duplicated request) creates a second
+  charge instead of returning the original result (deliberate gap used by
+  the "fix duplicate orders when the payment provider times out" benchmark
+  task, evaluation/tasks/task_011.json).

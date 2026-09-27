@@ -115,6 +115,96 @@ export interface RepairAttemptItem {
   result: string;
 }
 
+export interface PipelineStage {
+  name: string;
+  status: string;
+  timestamp: string | null;
+  duration_ms: number | null;
+  input: string;
+  output: string;
+  evidence: string[];
+  approval_state: string | null;
+  guardrails_triggered: { guardrail_id: string; name: string; status: string }[];
+}
+
+export const GUARDRAIL_CATEGORIES = [
+  "SECURITY",
+  "INFRASTRUCTURE",
+  "CI_CD",
+  "DEPLOYMENT",
+  "COST",
+  "AI_LLM",
+  "INPUT",
+  "OUTPUT",
+] as const;
+
+export type GuardrailCategory = (typeof GUARDRAIL_CATEGORIES)[number];
+
+export interface GuardrailCatalogItem {
+  guardrail_id: string;
+  category: string;
+  name: string;
+  severity: string;
+}
+
+export interface GuardrailCheckItem {
+  id: string;
+  workflow_id: string;
+  guardrail_id: string;
+  category: string;
+  name: string;
+  description: string;
+  purpose: string;
+  trigger_condition: string;
+  enforcement_point: string;
+  severity: string;
+  status: string;
+  action: string;
+  evidence: string[];
+  remediation: string;
+  configurable_threshold: string;
+  enabled: boolean;
+  created_at: string;
+  evaluated_at: string;
+}
+
+export interface GuardrailCategorySummary {
+  total: number;
+  passed: number;
+  warnings: number;
+  blocked: number;
+  failed: number;
+  not_applicable: number;
+  not_implemented: number;
+}
+
+export interface GuardrailSummary {
+  has_data: boolean;
+  categories: Record<string, GuardrailCategorySummary>;
+  approval_required: number;
+}
+
+export interface GuardrailTimelineItem {
+  guardrail_id: string;
+  category: string;
+  name: string;
+  enforcement_point: string;
+  status: string;
+  action: string;
+  severity: string;
+  reason: string;
+  evidence: string[];
+  remediation: string;
+  approval_required: boolean;
+  evaluated_at: string;
+}
+
+export interface EvidenceClassificationItem {
+  item: string;
+  classification: "FACT" | "INFERRED" | "ASSUMPTION" | "UNKNOWN" | "UNVERIFIED";
+  note: string;
+}
+
 export interface FinalReport {
   workflow_id: string;
   intent: string;
@@ -138,5 +228,17 @@ export interface FinalReport {
   human_intervention_count: number;
   git_operations: { operation: string; detail: string; ref: string }[];
   audit_trail: { event_type: string; stage: string; timestamp: string }[];
+  risks: { risk_id: string; title: string; component: string; severity: string; status: string; source: string }[];
+  guardrails: {
+    total: number;
+    passed: number;
+    warnings: number;
+    blocked: number;
+    failed: number;
+    by_category: Record<string, number>;
+    blocking: { guardrail_id: string; name: string; category: string; reason: string }[];
+  };
+  production_readiness: { decision: string; reasons: string[] } | null;
+  evidence_classification: EvidenceClassificationItem[];
   timing_ms: Record<string, number | null>;
 }

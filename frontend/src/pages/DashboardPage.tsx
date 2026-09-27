@@ -73,7 +73,7 @@ export function DashboardPage() {
           <div className="empty-state">Loading…</div>
         ) : workflows.length === 0 ? (
           <div className="empty-state">
-            No workflows yet. <Link to="/new">Start a new workflow</Link>.
+            No workflows yet. <Link to="/new-workflow">Start a new workflow</Link>.
           </div>
         ) : (
           <table>

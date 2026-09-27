@@ -51,6 +51,7 @@ def create_workflow(payload: CreateWorkflowRequest, session: Session = Depends(g
         payload.base_branch,
         payload.test_command,
         payload.build_command,
+        payload.environment,
     )
 
 
@@ -213,9 +214,11 @@ def commit_endpoint(workflow_id: str, payload: ApprovalRequest, session: Session
 @router.post("/{workflow_id}/github/push")
 def push_endpoint(workflow_id: str, payload: PushApprovalRequest, session: Session = Depends(get_session)) -> dict:
     from app.services.github import github_ops
+    from app.services.guardrails import engine as guardrails
     from app.services.validation.sandbox import workspace_path
 
     workflow = _wrap(orch.get_workflow, session, workflow_id)
+    guardrails.record(session, workflow_id, guardrails.check_deployment_approval("external_github_action:push", payload.approved))
     if not payload.approved:
         return {"status": "declined"}
     workspace = workspace_path(workflow_id)
@@ -233,8 +236,10 @@ def push_endpoint(workflow_id: str, payload: PushApprovalRequest, session: Sessi
 @router.post("/{workflow_id}/github/pr")
 def pr_endpoint(workflow_id: str, payload: PRApprovalRequest, session: Session = Depends(get_session)) -> dict:
     from app.services.github import github_ops
+    from app.services.guardrails import engine as guardrails
 
     workflow = _wrap(orch.get_workflow, session, workflow_id)
+    guardrails.record(session, workflow_id, guardrails.check_deployment_approval("external_github_action:pr", payload.approved))
     if not payload.approved:
         return {"status": "declined"}
     try:
@@ -321,3 +326,111 @@ def get_report_markdown(workflow_id: str, session: Session = Depends(get_session
 
     trace = _wrap(build_report, session, workflow_id)
     return PlainTextResponse(report_to_markdown(trace), media_type="text/markdown")
+
+
+# ---------------------------------------------------------------------------
+# Production control-plane: architecture / risks / guardrails / chaos / readiness
+# ---------------------------------------------------------------------------
+@router.get("/{workflow_id}/architecture")
+def get_architecture_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    return _wrap(orch.get_architecture, session, workflow_id)
+
+
+@router.post("/{workflow_id}/risks/analyze")
+def run_risk_analysis_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    rows = _wrap(orch.run_risk_analysis, session, workflow_id)
+    return {"risks": [_risk_to_dict(r) for r in rows]}
+
+
+@router.get("/{workflow_id}/risks")
+def get_risks_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    from app.models.models import RiskItem
+
+    rows = session.exec(select(RiskItem).where(RiskItem.workflow_id == workflow_id)).all()
+    return {"risks": [_risk_to_dict(r) for r in rows]}
+
+
+def _risk_to_dict(r) -> dict:
+    return {
+        "risk_id": r.risk_id,
+        "title": r.title,
+        "component": r.component,
+        "severity": r.severity,
+        "likelihood": r.likelihood,
+        "blast_radius": r.blast_radius,
+        "detection": r.detection,
+        "mitigation": r.mitigation,
+        "validation_method": r.validation_method,
+        "status": r.status,
+        "evidence": json.loads(r.evidence_json),
+        "source": r.source,
+    }
+
+
+# NOTE: per-workflow guardrail results are served by app.api.guardrails
+# (GET /api/guardrails/{workflow_id}) — not duplicated here.
+
+
+@router.post("/{workflow_id}/chaos/run")
+def run_chaos_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    rows = _wrap(orch.run_chaos_simulation, session, workflow_id)
+    return {"experiments": [_chaos_to_dict(c) for c in rows]}
+
+
+@router.get("/{workflow_id}/chaos")
+def get_chaos_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    from app.models.models import ChaosExperiment
+
+    rows = session.exec(select(ChaosExperiment).where(ChaosExperiment.workflow_id == workflow_id)).all()
+    return {"experiments": [_chaos_to_dict(c) for c in rows]}
+
+
+def _chaos_to_dict(c) -> dict:
+    return {
+        "experiment_id": c.experiment_id,
+        "target": c.target,
+        "hypothesis": c.hypothesis,
+        "fault": c.fault,
+        "expected_behavior": c.expected_behavior,
+        "observed_behavior": c.observed_behavior,
+        "result": c.result,
+        "environment": c.environment,
+        "evidence": json.loads(c.evidence_json),
+        "timestamp": c.timestamp.isoformat(),
+    }
+
+
+@router.post("/{workflow_id}/readiness/assess")
+def run_readiness_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    row = _wrap(orch.run_production_readiness, session, workflow_id)
+    return _readiness_to_dict(row)
+
+
+@router.get("/{workflow_id}/readiness")
+def get_readiness_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    from app.models.models import ProductionReadinessAssessment
+
+    row = session.exec(
+        select(ProductionReadinessAssessment)
+        .where(ProductionReadinessAssessment.workflow_id == workflow_id)
+        .order_by(ProductionReadinessAssessment.created_at.desc())
+    ).first()
+    if row is None:
+        return {"decision": None, "reasons": [], "checklist": {}}
+    return _readiness_to_dict(row)
+
+
+def _readiness_to_dict(row) -> dict:
+    return {
+        "decision": row.decision,
+        "reasons": json.loads(row.reasons_json),
+        "checklist": json.loads(row.checklist_json),
+        "created_at": row.created_at.isoformat(),
+    }
+
+
+@router.get("/{workflow_id}/pipeline")
+def get_pipeline_endpoint(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    from app.services.pipeline_view import build_pipeline
+
+    return _wrap(build_pipeline, session, workflow_id)

@@ -19,6 +19,7 @@ htmlcov/
 .DS_Store
 .git/
 workspaces/
+cloned_repos/
 evaluation/results/
 chroma_data/
 *.log

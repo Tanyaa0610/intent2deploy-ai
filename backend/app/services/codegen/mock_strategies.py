@@ -273,6 +273,91 @@ def auth_token_expiry(file_contents: dict[str, str]) -> list[MockChange]:
 
 
 # ---------------------------------------------------------------------------
+# 5. Payment idempotency (production-aware reliability scenario, Part N)
+# ---------------------------------------------------------------------------
+_IDEMPOTENCY_INIT = "        self._charges: list[Charge] = []\n"
+_IDEMPOTENCY_INIT_NEW = (
+    "        self._charges: list[Charge] = []\n"
+    "        self._idempotency_cache: dict[str, Charge] = {}\n"
+)
+
+_OLD_CHARGE_METHOD = (
+    '    def charge_order(self, order_id: int, amount: float, *, should_timeout: bool = False) -> Charge:\n'
+    '        """Charge `order_id` for `amount` via the external payment provider.\n'
+    '\n'
+    '        BUG: no idempotency key is used, so calling this twice for the same\n'
+    '        order_id (e.g. because a client retried after a timeout, or the\n'
+    '        request was duplicated) creates two separate charges instead of\n'
+    '        returning the original result.\n'
+    '        """\n'
+    '        result = self._provider.charge(amount, should_timeout=should_timeout)\n'
+    '        charge = Charge(order_id=order_id, amount=amount, provider_charge_id=result.provider_charge_id)\n'
+    '        self._charges.append(charge)\n'
+    '        return charge\n'
+)
+
+_NEW_CHARGE_METHOD = (
+    '    def charge_order(\n'
+    '        self,\n'
+    '        order_id: int,\n'
+    '        amount: float,\n'
+    '        *,\n'
+    '        idempotency_key: str | None = None,\n'
+    '        should_timeout: bool = False,\n'
+    '    ) -> Charge:\n'
+    '        """Charge `order_id` for `amount` via the external payment provider.\n'
+    '\n'
+    '        If `idempotency_key` matches a previous successful charge, that\n'
+    '        charge is returned unchanged instead of contacting the provider\n'
+    '        again — this is what makes a client retry after a provider timeout\n'
+    '        (or a duplicated request) safe: it can never create a second charge\n'
+    '        for the same logical payment attempt.\n'
+    '        """\n'
+    '        if idempotency_key is not None and idempotency_key in self._idempotency_cache:\n'
+    '            return self._idempotency_cache[idempotency_key]\n'
+    '        result = self._provider.charge(amount, should_timeout=should_timeout)\n'
+    '        charge = Charge(order_id=order_id, amount=amount, provider_charge_id=result.provider_charge_id)\n'
+    '        self._charges.append(charge)\n'
+    '        if idempotency_key is not None:\n'
+    '            self._idempotency_cache[idempotency_key] = charge\n'
+    '        return charge\n'
+)
+
+
+def payment_idempotency(file_contents: dict[str, str]) -> list[MockChange]:
+    path = "src/payments/service.py"
+    old = file_contents.get(path, "")
+    if not old or "def charge_order" not in old or "idempotency_key" in old:
+        return []
+    if _IDEMPOTENCY_INIT not in old or _OLD_CHARGE_METHOD not in old:
+        return []
+
+    new = old.replace(_IDEMPOTENCY_INIT, _IDEMPOTENCY_INIT_NEW, 1)
+    new = new.replace(_OLD_CHARGE_METHOD, _NEW_CHARGE_METHOD, 1)
+
+    return [
+        MockChange(
+            file=path,
+            operation="modify",
+            reason=(
+                "Adds an idempotency-key cache to PaymentService so retrying a charge "
+                "(e.g. after the payment provider times out) returns the original "
+                "charge instead of creating a duplicate one."
+            ),
+            new_content=new,
+            old_content=old,
+            confidence=0.78,
+            risks=[
+                "Idempotency cache is in-memory and lost on process restart, matching this "
+                "demo repository's existing in-memory persistence model.",
+                "Callers that do not pass an idempotency_key are unaffected and remain unprotected against retries.",
+            ],
+            acceptance_criterion="Retrying charge_order with the same idempotency_key does not create a duplicate provider charge.",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 STRATEGIES = {
@@ -280,6 +365,7 @@ STRATEGIES = {
     "bug_fix_orders": bug_fix_orders,
     "input_validation": input_validation,
     "auth_token_expiry": auth_token_expiry,
+    "payment_timeout_reliability": payment_idempotency,
 }
 
 

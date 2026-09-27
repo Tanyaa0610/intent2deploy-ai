@@ -109,3 +109,89 @@ class ChunkType(str, Enum):
     CONFIG = "config"
     DOC = "doc"
     OTHER = "other"
+
+
+class Environment(str, Enum):
+    LOCAL = "local"
+    SANDBOX = "sandbox"
+    TEST = "test"
+    STAGING = "staging"
+    PRODUCTION_SIMULATION = "production-simulation"
+    PRODUCTION = "production"  # never permitted by Guardrail 02
+
+
+ALLOWED_EXECUTION_ENVIRONMENTS = {
+    Environment.LOCAL,
+    Environment.SANDBOX,
+    Environment.TEST,
+    Environment.STAGING,
+    Environment.PRODUCTION_SIMULATION,
+}
+
+
+class GuardrailCategory(str, Enum):
+    """The 8 AI-DevOps guardrail categories. This is the ONLY guardrail
+    taxonomy in the system — every guardrail check belongs to exactly one
+    of these, replacing the earlier flat G01-G18 numbering entirely."""
+
+    SECURITY = "SECURITY"
+    INFRASTRUCTURE = "INFRASTRUCTURE"
+    CI_CD = "CI_CD"
+    DEPLOYMENT = "DEPLOYMENT"
+    COST = "COST"
+    AI_LLM = "AI_LLM"
+    INPUT = "INPUT"
+    OUTPUT = "OUTPUT"
+
+
+class GuardrailStatus(str, Enum):
+    PASSED = "PASSED"
+    WARNING = "WARNING"
+    BLOCKED = "BLOCKED"
+    FAILED = "FAILED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+
+
+class GuardrailAction(str, Enum):
+    ALLOW = "ALLOW"
+    WARN = "WARN"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
+    BLOCK = "BLOCK"
+    ABORT = "ABORT"
+
+
+class Severity(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class RiskStatus(str, Enum):
+    OPEN = "OPEN"
+    MITIGATED = "MITIGATED"
+    ACCEPTED = "ACCEPTED"
+
+
+class ChaosResult(str, Enum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class ProductionReadinessDecision(str, Enum):
+    READY = "READY"
+    READY_WITH_WARNINGS = "READY_WITH_WARNINGS"
+    NOT_READY = "NOT_READY"
+
+
+class PipelineStageStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    SKIPPED = "SKIPPED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"

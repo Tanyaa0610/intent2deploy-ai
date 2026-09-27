@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import evaluation, projects, repositories, workflows
+from app.api import dashboard, evaluation, guardrails, projects, repositories, risks, simulation, workflows
 from app.core.config import settings
 from app.core.db import init_db
 
@@ -37,3 +37,7 @@ app.include_router(repositories.router)
 app.include_router(repositories.search_router)
 app.include_router(workflows.router)
 app.include_router(evaluation.router)
+app.include_router(dashboard.router)
+app.include_router(guardrails.router)
+app.include_router(risks.router)
+app.include_router(simulation.router)

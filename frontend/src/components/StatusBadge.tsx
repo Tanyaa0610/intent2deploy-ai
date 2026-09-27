@@ -25,6 +25,31 @@ const STATE_STYLE: Record<string, string> = {
   error: "badge-danger",
   skipped: "badge-neutral",
   pending: "badge-neutral",
+  // Guardrail Control Plane statuses/actions (uppercase, as returned by
+  // GET /api/guardrails*).
+  PASSED: "badge-success",
+  WARNING: "badge-warn",
+  BLOCKED: "badge-danger",
+  NOT_APPLICABLE: "badge-neutral",
+  NOT_IMPLEMENTED: "badge-neutral",
+  ALLOW: "badge-success",
+  WARN: "badge-warn",
+  REQUIRE_APPROVAL: "badge-accent",
+  BLOCK: "badge-danger",
+  ABORT: "badge-danger",
+  LOW: "badge-neutral",
+  MEDIUM: "badge-accent",
+  HIGH: "badge-warn",
+  CRITICAL: "badge-danger",
+  // Final-report evidence classification (Part 14).
+  FACT: "badge-success",
+  INFERRED: "badge-accent",
+  ASSUMPTION: "badge-warn",
+  UNKNOWN: "badge-neutral",
+  UNVERIFIED: "badge-danger",
+  READY: "badge-success",
+  READY_WITH_WARNINGS: "badge-warn",
+  NOT_READY: "badge-danger",
 };
 
 export function StatusBadge({ state }: { state: string }) {

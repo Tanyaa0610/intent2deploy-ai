@@ -62,6 +62,30 @@ CATEGORY_METADATA: dict[str, dict] = {
         "risks": ["Long-lived sessions will require re-authentication after the TTL"],
         "primary_file": "src/auth/service.py",
     },
+    "payment_timeout_reliability": {
+        "summary": (
+            "Make order payment reliable under payment-provider failures by adding idempotency-key "
+            "protection to PaymentService.charge_order, so a client retry after a provider timeout "
+            "does not create a duplicate charge."
+        ),
+        "acceptance_criteria": [
+            "Retrying a charge for the same order with the same idempotency key returns the original charge instead of creating a new one",
+            "A charge for a different order or a new idempotency key still creates a new charge",
+            "Existing (non-retried) payment behavior is unaffected",
+        ],
+        "test_strategy": [
+            "regression: a normal single charge still succeeds and is recorded once",
+            "edge case: retrying the same idempotency key after a simulated provider timeout does not duplicate the charge",
+            "edge case: a new idempotency key for the same order creates a separate, legitimate charge",
+        ],
+        "risks": [
+            "Duplicate charges on payment-provider timeout are a direct financial and trust risk",
+            "Idempotency cache is in-memory (lost on process restart), matching this demo repository's existing in-memory persistence model",
+            "Retry storms from a flaky provider could still exhaust request capacity without additional backoff (out of scope for this change)",
+            "Rollback strategy: this change is additive (a new idempotency_key parameter with a safe default of None) and requires no data migration, so it can be reverted by rolling back the commit with no data-compatibility impact",
+        ],
+        "primary_file": "src/payments/service.py",
+    },
     "generic": {
         "summary": "Analyze the requested change against retrieved repository evidence.",
         "acceptance_criteria": [

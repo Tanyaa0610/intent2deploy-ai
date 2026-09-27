@@ -4,11 +4,28 @@
   "category": "api_modification",
   "intent": "Add an API endpoint that allows cancelling an existing order.",
   "repository": "demo-repository",
-  "expected_files": ["src/api/app.py", "src/orders/service.py"],
+  "expected_files": [
+    "src/api/app.py",
+    "src/orders/service.py"
+  ],
   "acceptance_criteria": [
     "A DELETE or POST endpoint exists to cancel an order",
     "Cancelling an unknown order returns a clear error response"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "medium"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "New endpoint could be called for an already-cancelled or unknown order",
+    "State transition on cancel needs to be well-defined"
+  ],
+  "expected_tests": [
+    "cancel known order succeeds",
+    "cancel unknown order returns a clear error"
+  ],
+  "expected_failure_modes": [
+    "Cancelling an order that does not exist",
+    "Double-cancelling the same order"
+  ]
 }

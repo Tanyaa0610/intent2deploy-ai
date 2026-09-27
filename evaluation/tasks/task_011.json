@@ -1,0 +1,30 @@
+{
+  "id": "task_011",
+  "title": "Fix duplicate orders on payment-provider timeout",
+  "category": "reliability_improvement",
+  "intent": "Users are sometimes getting duplicate orders when the payment provider times out. Fix the issue and make the system reliable under payment-provider failures.",
+  "repository": "demo-repository",
+  "expected_files": ["src/payments/service.py"],
+  "acceptance_criteria": [
+    "Retrying a charge for the same order with the same idempotency key returns the original charge instead of creating a new one",
+    "A charge for a different order or a new idempotency key still creates a new charge",
+    "Existing (non-retried) payment behavior is unaffected"
+  ],
+  "expected_risks": [
+    "Duplicate charges on payment-provider timeout are a direct financial and trust risk",
+    "Idempotency cache is in-memory and lost on process restart",
+    "Retry storms from a flaky provider are not fully addressed by idempotency alone"
+  ],
+  "expected_tests": [
+    "retry with same idempotency key does not duplicate charge",
+    "new idempotency key creates a separate charge",
+    "charge without idempotency key still succeeds (regression)"
+  ],
+  "expected_failure_modes": [
+    "Payment provider timeout mid-request",
+    "Client-side retry duplicating an in-flight request",
+    "Concurrent duplicate requests for the same order"
+  ],
+  "validation_commands": ["python3 -m pytest -q"],
+  "difficulty": "hard"
+}

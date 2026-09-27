@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.api.deps import get_session
+from app.core.config import settings
 from app.models.models import Repository
-from app.schemas.api import AskRequest, IndexRepositoryRequest, RepositoryResponse, SearchRequest
+from app.schemas.api import AskRequest, CloneRepositoryRequest, IndexRepositoryRequest, RepositoryResponse, SearchRequest
 from app.services import orchestrator as orch
+from app.services.git.git_ops import GitCloneError, clone_github_repository
 from app.services.orchestrator import OrchestratorError
 from app.services.rag.retriever import retrieve
 
@@ -18,6 +22,28 @@ search_router = APIRouter(prefix="/api/repository", tags=["repository-intelligen
 def index_repository_endpoint(payload: IndexRepositoryRequest, session: Session = Depends(get_session)) -> Repository:
     try:
         repo = orch.register_repository(session, payload.project_id, payload.path)
+        repo = orch.run_indexing_for_repository(session, repo)
+    except OrchestratorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return repo
+
+
+@router.post("/clone", response_model=RepositoryResponse)
+def clone_repository_endpoint(payload: CloneRepositoryRequest, session: Session = Depends(get_session)) -> Repository:
+    """Clone a public https://github.com/<owner>/<repo> URL locally, then
+    index it exactly like a local-path repository. Read-only, unauthenticated
+    (no token involved) — used only for indexing/RAG/codegen/testing."""
+    try:
+        local_path = clone_github_repository(payload.url, Path(settings.cloned_repos_dir))
+    except GitCloneError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        repo = orch.register_repository(session, payload.project_id, str(local_path))
+        repo.source = payload.url  # show the GitHub URL, not the local cache path, as the source of truth
+        session.add(repo)
+        session.commit()
+        session.refresh(repo)
         repo = orch.run_indexing_for_repository(session, repo)
     except OrchestratorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

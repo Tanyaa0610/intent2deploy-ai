@@ -10,15 +10,30 @@
 No LLM API key is required to run the full application: `LLM_MODE=mock`
 (the default) uses a deterministic, retrieval-grounded local provider.
 
-## Option A — Docker Compose
+## Option A — Docker Compose (Local Dockerized Prototype)
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-- Backend: http://localhost:8000
+- Backend: http://localhost:8000 (API docs at `/docs`, health at `/api/health`)
 - Frontend: http://localhost:5173
+
+This is a local prototype — no CI/CD, no cloud deployment. `docker compose
+up --build` starts two containers: `backend` (FastAPI/Uvicorn, health-checked
+on `/api/health`) and `frontend` (a production Vite build served statically),
+with `frontend` waiting for `backend` to report healthy before starting.
+
+Persisted in the named volume `i2d_data` across restarts and rebuilds: the
+SQLite database, ChromaDB index, sandboxed workspaces, and any GitHub
+repositories cloned via `POST /api/repositories/clone`. The
+`demo-repository/` folder is bind-mounted read/write from the host so it
+stays available without rebuilding the image.
+
+- Stop: `docker compose down`
+- Rebuild after a code change: `docker compose up --build`
+- Remove containers **and** local persisted data: `docker compose down -v`
 
 ## Option B — Local (no Docker)
 

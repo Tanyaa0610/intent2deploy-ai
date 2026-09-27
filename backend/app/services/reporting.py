@@ -18,15 +18,49 @@ from app.models.models import (
     ChangeApprovalRecord,
     GeneratedTest,
     GitOperation,
+    GuardrailCheck,
     Plan,
+    ProductionReadinessAssessment,
     ProposedChange,
     RepairAttempt,
     Repository,
     RetrievedDocument,
+    RiskItem,
     ValidationResult,
 )
 from app.services.orchestrator import get_workflow
 from app.services.providers.factory import get_provider
+
+
+def _classify_evidence(plan: Plan | None, evidence: list, invented_files_removed: list[str]) -> list[dict]:
+    """Deterministic, non-fabricated evidence classification (Part 14): every
+    entry here is derived from a real persisted fact — nothing is invented
+    to fill out the FACT/INFERRED/ASSUMPTION/UNKNOWN/UNVERIFIED taxonomy."""
+    items: list[dict] = [
+        {
+            "item": "Developer intent",
+            "classification": "FACT",
+            "note": "Exact text submitted by the developer; not paraphrased.",
+        }
+    ]
+    for e in evidence[:8]:
+        items.append(
+            {
+                "item": f"{e.file}:{e.start_line}-{e.end_line}",
+                "classification": "FACT",
+                "note": f"Real repository retrieval result (score={e.score:.2f}, method={e.retrieval_method}).",
+            }
+        )
+    if plan is not None:
+        items.append({"item": "Plan summary & steps", "classification": "INFERRED", "note": "Derived by the LLM from the retrieval evidence above, not a literal repository fact."})
+        for a in json.loads(plan.assumptions_json):
+            items.append({"item": a, "classification": "ASSUMPTION", "note": "Stated assumption in the generated plan; not independently verified against the repository."})
+        risks = json.loads(plan.risks_json)
+        if not risks:
+            items.append({"item": "Risk assessment", "classification": "UNKNOWN", "note": "The plan stated no risks — treated as UNKNOWN, never silently read as 'low risk'."})
+    for f in invented_files_removed:
+        items.append({"item": f, "classification": "UNVERIFIED", "note": "Referenced by the LLM but absent from retrieval evidence; stripped from the grounded plan before use."})
+    return items
 
 
 def build_report(session: Session, workflow_id: str) -> dict:
@@ -41,6 +75,19 @@ def build_report(session: Session, workflow_id: str) -> dict:
     events = session.exec(select(AuditEvent).where(AuditEvent.workflow_id == workflow_id).order_by(AuditEvent.timestamp)).all()
     git_ops_rows = session.exec(select(GitOperation).where(GitOperation.workflow_id == workflow_id)).all()
     change_approvals = session.exec(select(ChangeApprovalRecord).where(ChangeApprovalRecord.workflow_id == workflow_id)).all()
+    risks = session.exec(select(RiskItem).where(RiskItem.workflow_id == workflow_id)).all()
+    guardrail_checks = session.exec(select(GuardrailCheck).where(GuardrailCheck.workflow_id == workflow_id)).all()
+    readiness = session.exec(
+        select(ProductionReadinessAssessment)
+        .where(ProductionReadinessAssessment.workflow_id == workflow_id)
+        .order_by(ProductionReadinessAssessment.created_at.desc())
+    ).first()
+
+    invented_files_removed: list[str] = []
+    for e in events:
+        if e.event_type == "PLAN_GENERATED":
+            invented_files_removed = json.loads(e.metadata_json).get("invented_files_removed", [])
+            break
 
     final_validation = None
     if validations:
@@ -82,6 +129,40 @@ def build_report(session: Session, workflow_id: str) -> dict:
         "change_approvals": [{"approved": a.approved, "comment": a.comment} for a in change_approvals],
         "git_operations": [{"operation": g.operation, "detail": g.detail, "ref": g.ref} for g in git_ops_rows],
         "audit_trail": [{"event_type": e.event_type, "stage": e.stage, "timestamp": e.timestamp.isoformat()} for e in events],
+        "risks": [
+            {
+                "risk_id": r.risk_id,
+                "title": r.title,
+                "component": r.component,
+                "severity": r.severity,
+                "status": r.status,
+                "source": r.source,
+            }
+            for r in risks
+        ],
+        "guardrails": {
+            "total": len(guardrail_checks),
+            "passed": sum(1 for g in guardrail_checks if g.status == "PASSED"),
+            "warnings": sum(1 for g in guardrail_checks if g.status == "WARNING"),
+            "blocked": sum(1 for g in guardrail_checks if g.status == "BLOCKED"),
+            "failed": sum(1 for g in guardrail_checks if g.status == "FAILED"),
+            "by_category": {
+                cat: sum(1 for g in guardrail_checks if g.category == cat)
+                for cat in sorted({g.category for g in guardrail_checks})
+            },
+            "blocking": [
+                {"guardrail_id": g.guardrail_id, "name": g.name, "category": g.category, "reason": g.trigger_condition}
+                for g in guardrail_checks
+                if g.status in ("BLOCKED", "FAILED")
+            ],
+        },
+        "production_readiness": {
+            "decision": readiness.decision,
+            "reasons": json.loads(readiness.reasons_json),
+        }
+        if readiness
+        else None,
+        "evidence_classification": _classify_evidence(plan, evidence, invented_files_removed),
         "timing_ms": {
             "indexing": workflow.indexing_ms,
             "retrieval": workflow.retrieval_ms,
@@ -153,6 +234,32 @@ def report_to_markdown(trace: dict) -> str:
     lines.append(f"\n**Final validation:** {trace['final_validation']}")
     lines.append(f"**Repair attempts:** {trace['repair_attempts']}")
     lines.append(f"**Human interventions:** {trace['human_intervention_count']}")
+    lines.append("")
+    lines.append("## Risks")
+    for r in trace["risks"]:
+        lines.append(f"- [{r['severity']}] `{r['risk_id']}` {r['title']} (component={r['component']}, status={r['status']}, source={r['source']})")
+    lines.append("")
+    lines.append("## Guardrail Results")
+    g = trace["guardrails"]
+    lines.append(f"- Total checks: {g['total']} — passed={g['passed']}, warnings={g['warnings']}, blocked={g['blocked']}, failed={g['failed']}")
+    for cat, n in g["by_category"].items():
+        lines.append(f"  - {cat}: {n} check(s)")
+    if g["blocking"]:
+        lines.append("- Blocking/failed guardrails:")
+        for b in g["blocking"]:
+            lines.append(f"  - [{b['guardrail_id']}] {b['name']} ({b['category']}) — {b['reason']}")
+    lines.append("")
+    lines.append("## Production Readiness — Final Decision")
+    if trace["production_readiness"]:
+        lines.append(f"**Decision:** {trace['production_readiness']['decision']}")
+        for reason in trace["production_readiness"]["reasons"]:
+            lines.append(f"- {reason}")
+    else:
+        lines.append("Not yet assessed.")
+    lines.append("")
+    lines.append("## Evidence Classification (FACT / INFERRED / ASSUMPTION / UNKNOWN / UNVERIFIED)")
+    for item in trace["evidence_classification"]:
+        lines.append(f"- **[{item['classification']}]** {item['item']} — {item['note']}")
     lines.append("")
     lines.append("## Git Operations")
     for g in trace["git_operations"]:

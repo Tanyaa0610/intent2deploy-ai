@@ -116,9 +116,44 @@ def auth_token_expiry_tests() -> list[MockGeneratedTest]:
     ]
 
 
+def payment_idempotency_tests() -> list[MockGeneratedTest]:
+    return [
+        MockGeneratedTest(
+            file="tests/test_payments.py",
+            content=(
+                "\n\n"
+                "def test_retry_with_same_idempotency_key_does_not_duplicate_charge() -> None:\n"
+                "    service = PaymentService(PaymentProviderClient())\n"
+                "    first = service.charge_order(order_id=1, amount=50.0, idempotency_key=\"attempt-1\")\n"
+                "    retried = service.charge_order(order_id=1, amount=50.0, idempotency_key=\"attempt-1\")\n"
+                "    assert first.provider_charge_id == retried.provider_charge_id\n"
+                "    assert len(service.charges_for_order(1)) == 1\n"
+                "\n\n"
+                "def test_new_idempotency_key_creates_separate_charge() -> None:\n"
+                "    service = PaymentService(PaymentProviderClient())\n"
+                "    service.charge_order(order_id=1, amount=50.0, idempotency_key=\"attempt-1\")\n"
+                "    service.charge_order(order_id=1, amount=50.0, idempotency_key=\"attempt-2\")\n"
+                "    assert len(service.charges_for_order(1)) == 2\n"
+                "\n\n"
+                "def test_charge_without_idempotency_key_still_succeeds() -> None:\n"
+                "    service = PaymentService(PaymentProviderClient())\n"
+                "    charge = service.charge_order(order_id=2, amount=15.0)\n"
+                "    assert charge.amount == 15.0\n"
+            ),
+            rationale=(
+                "Proves a retried request with the same idempotency key is deduplicated "
+                "(the production bug this task fixes), that a genuinely new payment attempt "
+                "still charges, and that unprotected callers keep working (regression)."
+            ),
+            category="edge_case",
+        )
+    ]
+
+
 STRATEGIES = {
     "password_reset": password_reset_tests,
     "bug_fix_orders": bug_fix_orders_tests,
     "input_validation": input_validation_tests,
     "auth_token_expiry": auth_token_expiry_tests,
+    "payment_timeout_reliability": payment_idempotency_tests,
 }

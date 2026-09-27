@@ -22,10 +22,18 @@ CATEGORIES = [
     "refactor_password_hash",
     "add_docstrings",
     "test_generation_orders",
+    "payment_timeout_reliability",
     "generic",
 ]
 
 _PATTERNS: list[tuple[str, list[str]]] = [
+    (
+        "payment_timeout_reliability",
+        [
+            "duplicate order", "duplicate orders", "payment provider times out", "payment provider timeout",
+            "payment timeout", "idempotent", "idempotency", "payment reliability", "reliable under payment",
+        ],
+    ),
     ("password_reset", ["password reset", "reset password", "forgot password"]),
     ("bug_fix_orders", ["null-reference", "null reference", "order service", "order total", "nullpointer", "none error"]),
     ("input_validation", ["input validation", "validate registration", "registration endpoint", "validate email", "validate input"]),

@@ -5,6 +5,7 @@ import type {
   AuditEventItem,
   FinalReport,
   GeneratedTestItem,
+  PipelineStage,
   PlanDetail,
   ProposedChangeItem,
   RepairAttemptItem,
@@ -17,6 +18,7 @@ import { Timeline } from "../components/Timeline";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { DiffViewer } from "../components/DiffViewer";
 import { ApprovalControls } from "../components/ApprovalControls";
+import { PipelineStrip } from "../components/PipelineStrip";
 
 type TabKey = "plan" | "repo" | "changes" | "tests" | "ci" | "report";
 
@@ -24,15 +26,17 @@ export function WorkflowDetailPage() {
   const { id = "" } = useParams();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [events, setEvents] = useState<AuditEventItem[]>([]);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
   const [tab, setTab] = useState<TabKey>("plan");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [wf, ev] = await Promise.all([api.getWorkflow(id), api.getEvents(id)]);
+      const [wf, ev, pl] = await Promise.all([api.getWorkflow(id), api.getEvents(id), api.getPipeline(id)]);
       setWorkflow(wf);
       setEvents(ev.events);
+      setPipeline(pl.stages);
     } catch (e) {
       setError(String(e));
     }
@@ -65,6 +69,11 @@ export function WorkflowDetailPage() {
     <div>
       <h1 className="page-title">Workflow</h1>
       <p className="page-subtitle">{workflow.intent}</p>
+
+      <div className="card">
+        <div className="card-title">Pipeline Stage Status</div>
+        <PipelineStrip stages={pipeline} />
+      </div>
 
       <div className="grid grid-3">
         <div className="card">
@@ -574,6 +583,74 @@ function ReportTab({ id }: { id: string }) {
       <div className="card-title" style={{ marginTop: 16 }}>Outcome</div>
       <StatusBadge state={report.final_status} /> · Final validation: {report.final_validation || "—"} · Repairs:{" "}
       {report.repair_attempts} · Human interventions: {report.human_intervention_count}
+
+      <div className="card-title" style={{ marginTop: 16 }}>Production Readiness — Final Decision</div>
+      {report.production_readiness ? (
+        <>
+          <StatusBadge state={report.production_readiness.decision} />
+          <ul style={{ marginTop: 8 }}>
+            {report.production_readiness.reasons.map((r, i) => (
+              <li key={i} style={{ fontSize: 13 }}>{r}</li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p style={{ fontSize: 13, color: "var(--text-faint)" }}>Not yet assessed for this workflow.</p>
+      )}
+
+      <div className="card-title" style={{ marginTop: 16 }}>Risks</div>
+      {report.risks.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--text-faint)" }}>No risk analysis has run for this workflow yet.</p>
+      ) : (
+        <table>
+          <thead><tr><th>Severity</th><th>Risk</th><th>Component</th><th>Status</th><th>Source</th></tr></thead>
+          <tbody>
+            {report.risks.map((r) => (
+              <tr key={r.risk_id}>
+                <td><StatusBadge state={r.severity} /></td>
+                <td>{r.title}</td>
+                <td>{r.component}</td>
+                <td>{r.status}</td>
+                <td>{r.source}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="card-title" style={{ marginTop: 16 }}>Guardrail Results</div>
+      <p style={{ fontSize: 13 }}>
+        {report.guardrails.total} check(s) — {report.guardrails.passed} passed, {report.guardrails.warnings} warnings,{" "}
+        {report.guardrails.blocked} blocked, {report.guardrails.failed} failed.
+      </p>
+      {Object.keys(report.guardrails.by_category).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {Object.entries(report.guardrails.by_category).map(([cat, n]) => (
+            <span key={cat} className="badge badge-neutral">{cat}: {n}</span>
+          ))}
+        </div>
+      )}
+      {report.guardrails.blocking.length > 0 && (
+        <ul>
+          {report.guardrails.blocking.map((b, i) => (
+            <li key={i} style={{ fontSize: 13 }}><code>{b.guardrail_id}</code> {b.name} ({b.category}) — {b.reason}</li>
+          ))}
+        </ul>
+      )}
+
+      <div className="card-title" style={{ marginTop: 16 }}>Evidence Classification</div>
+      <table>
+        <thead><tr><th>Label</th><th>Item</th><th>Note</th></tr></thead>
+        <tbody>
+          {report.evidence_classification.map((e, i) => (
+            <tr key={i}>
+              <td><StatusBadge state={e.classification} /></td>
+              <td style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{e.item}</td>
+              <td style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{e.note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       <div className="card-title" style={{ marginTop: 16 }}>Changes</div>
       <ul>

@@ -43,8 +43,24 @@ class Settings(BaseSettings):
     max_repair_attempts: int = 2
     command_timeout_seconds: int = 120
 
+    # AI-DevOps guardrail limits — INFRASTRUCTURE category
+    max_blast_radius_files: int = 8
+
+    # AI-DevOps guardrail limits — COST category. Token/dollar figures are
+    # ESTIMATES (see Workflow.llm_estimated_tokens); mock mode has no real
+    # provider billing API to read exact usage from.
+    max_llm_calls_per_workflow: int = 12
+    max_llm_estimated_tokens_per_workflow: int = 60_000
+    workflow_cost_budget_usd: float = 1.00
+    cost_per_1k_tokens_usd: float = 0.01  # generic fallback rate; not provider-specific pricing
+
     # Workspaces
     workspaces_dir: str = str(PROJECT_ROOT / "workspaces")
+
+    # Local cache for repositories cloned from a GitHub URL (New Workflow
+    # "GitHub Repository" input). Read-only clones used for indexing/RAG/
+    # codegen only — never a push target.
+    cloned_repos_dir: str = str(PROJECT_ROOT / "cloned_repos")
 
     # Optional external automation adapter (Sweep.dev)
     sweep_api_key: str = ""

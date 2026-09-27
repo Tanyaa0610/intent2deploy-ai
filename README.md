@@ -73,16 +73,52 @@ scripts/    setup_demo.sh, run_evaluation.py
 
 Full diagram and component table: `docs/architecture.md`.
 
-## Setup
+## Running with Docker (Local Dockerized Prototype)
+
+This is a **local prototype**, not a production deployment — SQLite,
+ChromaDB, and mock-mode-by-default, all running on your machine via
+Docker Compose. No CI/CD, no cloud deployment.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-or without Docker: `./scripts/setup_demo.sh`. Full instructions,
-including enabling a live LLM provider or GitHub integration:
-`docs/setup.md`.
+Then open:
+
+- Frontend: http://localhost:5173
+- Backend: http://localhost:8000
+- API docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/api/health
+
+**Mock mode is the default** (`LLM_MODE=mock` in `.env.example`) — the full
+pipeline (indexing, RAG, planning, codegen, tests, guardrails) runs with no
+API key. To use a live LLM, edit `.env` before `docker compose up --build`:
+
+```env
+LLM_MODE=live
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Repository input:** a local path (mounted read-only via the
+`demo-repository` bind mount, or any host path you index the same way
+outside Docker) or a public `https://github.com/<owner>/<repo>` URL, cloned
+server-side into the backend's persisted volume — never a token, never
+client-side.
+
+**What's persisted** (named volume `i2d_data`, survives `docker compose
+down` and container restarts/recreates): the SQLite database, ChromaDB
+index, sandboxed workflow workspaces, and cloned GitHub repositories.
+**What's not persisted** (rebuilt fresh every time): `node_modules`, the
+Python environment, `__pycache__`, build caches.
+
+- **Stop:** `docker compose down`
+- **Rebuild after a code change:** `docker compose up --build`
+- **Wipe all local data and start clean:** `docker compose down -v`
+
+Without Docker: `./scripts/setup_demo.sh`. Full instructions, including
+live LLM providers and GitHub integration for push/PR: `docs/setup.md`.
 
 ## Demo
 

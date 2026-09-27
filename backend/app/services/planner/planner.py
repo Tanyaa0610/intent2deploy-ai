@@ -25,10 +25,19 @@ class PlanningResult:
     prompt_versions: dict[str, str]
     raw_llm_output: str
     invented_files_removed: list[str]
+    llm_call_count: int
+    llm_estimated_tokens: int  # sum of (len(rendered)+len(raw_text))//4 per call — a real, labeled ESTIMATE
+    retrieved_context_text: str
+
+
+def _estimate_tokens(*texts: str) -> int:
+    return sum(len(t) for t in texts) // 4
 
 
 def generate_plan(provider: LLMProvider, collection_name: str, intent: str) -> PlanningResult:
     prompt_versions: dict[str, str] = {}
+    call_count = 0
+    estimated_tokens = 0
 
     # Stage 1: requirement analysis (normalize + surface assumptions)
     req_prompt = load_prompt("requirement_analysis")
@@ -38,6 +47,8 @@ def generate_plan(provider: LLMProvider, collection_name: str, intent: str) -> P
         provider, "requirement_analysis", req_rendered, {"intent": intent},
         schema=_RequirementAnalysis,
     )
+    call_count += 1
+    estimated_tokens += _estimate_tokens(req_rendered, req_result.raw_text)
     normalized_requirement = req_result.parsed.normalized_requirement
 
     # Stage 2: retrieval query expansion
@@ -51,10 +62,16 @@ def generate_plan(provider: LLMProvider, collection_name: str, intent: str) -> P
         {"intent": intent, "normalized_requirement": normalized_requirement},
         schema=_QueryList,
     )
+    call_count += 1
+    estimated_tokens += _estimate_tokens(query_rendered, query_result.raw_text)
     queries = query_result.parsed.queries or [intent]
 
-    # Stage 3: hybrid retrieval across all expanded queries
-    retrieved = retrieve_multi(collection_name, queries, top_k=12)
+    # Stage 3: hybrid retrieval across all expanded queries. top_k is kept
+    # generous (rather than the bare minimum needed by today's demo
+    # repository) so that adding more source files to the target repository
+    # does not silently crowd out a relevant-but-lower-scoring file from the
+    # planner's evidence set.
+    retrieved = retrieve_multi(collection_name, queries, top_k=18)
     retrieved_files = list(dict.fromkeys(r.file for r in retrieved))
 
     # Stage 4: implementation planning grounded in retrieved evidence
@@ -71,6 +88,8 @@ def generate_plan(provider: LLMProvider, collection_name: str, intent: str) -> P
         {"intent": intent, "retrieved": to_context_dicts(retrieved), "retrieved_files": retrieved_files},
         schema=PlanOutput,
     )
+    call_count += 1
+    estimated_tokens += _estimate_tokens(plan_rendered, plan_result.raw_text)
     plan = plan_result.parsed
 
     # Safety/evidence validation: strip any file the planner referenced
@@ -91,6 +110,9 @@ def generate_plan(provider: LLMProvider, collection_name: str, intent: str) -> P
         prompt_versions=prompt_versions,
         raw_llm_output=plan_result.raw_text,
         invented_files_removed=sorted(invented),
+        llm_call_count=call_count,
+        llm_estimated_tokens=estimated_tokens,
+        retrieved_context_text=context_text,
     )
 
 

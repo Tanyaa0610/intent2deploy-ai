@@ -2,6 +2,11 @@ import type {
   AuditEventItem,
   FinalReport,
   GeneratedTestItem,
+  GuardrailCatalogItem,
+  GuardrailCheckItem,
+  GuardrailSummary,
+  GuardrailTimelineItem,
+  PipelineStage,
   PlanDetail,
   Project,
   ProposedChangeItem,
@@ -40,6 +45,8 @@ export const api = {
 
   indexRepository: (project_id: string, path: string) =>
     request<Repository>("/api/repositories/index", { method: "POST", body: JSON.stringify({ project_id, path }) }),
+  cloneRepository: (project_id: string, url: string) =>
+    request<Repository>("/api/repositories/clone", { method: "POST", body: JSON.stringify({ project_id, url }) }),
   listRepositories: (project_id?: string) =>
     request<Repository[]>(`/api/repositories${project_id ? `?project_id=${project_id}` : ""}`),
 
@@ -108,4 +115,39 @@ export const api = {
     }),
 
   getEvaluationResults: () => request<{ runs: unknown[] }>("/api/evaluation/results"),
+
+  getPipeline: (workflowId: string) =>
+    request<{ workflow_id: string; stages: PipelineStage[] }>(`/api/workflows/${workflowId}/pipeline`),
+
+  getReadiness: (workflowId: string) =>
+    request<{ decision: string | null; reasons: string[]; checklist: Record<string, string>; created_at?: string }>(
+      `/api/workflows/${workflowId}/readiness`
+    ),
+
+  getGuardrailCatalog: (category?: string) =>
+    request<{ categories: string[]; guardrails: GuardrailCatalogItem[] }>(
+      `/api/guardrails${category ? `?category=${encodeURIComponent(category)}` : ""}`
+    ),
+  getWorkflowGuardrails: (
+    workflowId: string,
+    filters: { category?: string; severity?: string; status?: string; checkpoint?: string } = {}
+  ) => {
+    const params = new URLSearchParams();
+    if (filters.category) params.set("category", filters.category);
+    if (filters.severity) params.set("severity", filters.severity);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.checkpoint) params.set("checkpoint", filters.checkpoint);
+    const qs = params.toString();
+    return request<{ guardrails: GuardrailCheckItem[] }>(`/api/guardrails/${workflowId}${qs ? `?${qs}` : ""}`);
+  },
+  getGuardrailSummary: (workflowId: string) => request<GuardrailSummary>(`/api/guardrails/${workflowId}/summary`),
+  getGuardrailTimeline: (workflowId: string) =>
+    request<{ timeline: GuardrailTimelineItem[] }>(`/api/guardrails/${workflowId}/timeline`),
+  evaluateGuardrails: (workflowId: string) =>
+    request<{ evaluated: GuardrailCheckItem[] }>(`/api/guardrails/${workflowId}/evaluate`, { method: "POST" }),
+  approveGuardrail: (workflowId: string, checkId: string, approved: boolean, comment = "") =>
+    request<GuardrailCheckItem>(`/api/guardrails/${workflowId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ check_id: checkId, approved, comment }),
+    }),
 };

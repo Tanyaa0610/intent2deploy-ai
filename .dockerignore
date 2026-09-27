@@ -1,0 +1,43 @@
+# Backend build context is the repo root (see docker-compose.yml) — this
+# keeps that context small and excludes anything that could carry local
+# secrets or generated data into the image.
+
+.git/
+.github/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local generated/runtime data — never belongs in an image
+backend/chroma_data/
+chroma_data/
+workspaces/
+cloned_repos/
+evaluation/results/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Misc
+.DS_Store
+dist/
+build/

@@ -4,11 +4,26 @@
   "category": "database_service_change",
   "intent": "Add the ability to deactivate a user account so a disabled user can no longer log in.",
   "repository": "demo-repository",
-  "expected_files": ["src/users/model.py", "src/auth/service.py"],
+  "expected_files": [
+    "src/users/model.py",
+    "src/auth/service.py"
+  ],
   "acceptance_criteria": [
     "A deactivated user cannot log in",
     "Existing active-user login is unaffected"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "medium"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "Deactivated user's existing session token must also stop working"
+  ],
+  "expected_tests": [
+    "deactivated user cannot log in",
+    "active user login regression"
+  ],
+  "expected_failure_modes": [
+    "Deactivated user retains a still-valid session token"
+  ]
 }

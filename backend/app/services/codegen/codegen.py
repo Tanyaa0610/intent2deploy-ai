@@ -30,6 +30,8 @@ class ChangeGenerationResult:
     changeset: ChangeSetOutput
     prompt_version: str
     raw_llm_output: str
+    context_text: str
+    llm_estimated_tokens: int  # ESTIMATE: (len(rendered)+len(raw_text))//4
 
 
 def _read_file_contents(repo_root: Path, files: list[str]) -> dict[str, str]:
@@ -88,4 +90,11 @@ def generate_changes(
                 f"MAX_PATCH_LINES={settings.max_patch_lines}."
             )
 
-    return ChangeGenerationResult(changeset=changeset, prompt_version=prompt.version, raw_llm_output=result.raw_text)
+    estimated_tokens = (len(rendered) + len(result.raw_text)) // 4
+    return ChangeGenerationResult(
+        changeset=changeset,
+        prompt_version=prompt.version,
+        raw_llm_output=result.raw_text,
+        context_text=context_text,
+        llm_estimated_tokens=estimated_tokens,
+    )

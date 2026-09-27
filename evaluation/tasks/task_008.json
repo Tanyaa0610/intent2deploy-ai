@@ -4,11 +4,24 @@
   "category": "documentation_code_quality",
   "intent": "Add clear module and function documentation to the order service for code quality.",
   "repository": "demo-repository",
-  "expected_files": ["src/orders/service.py"],
+  "expected_files": [
+    "src/orders/service.py"
+  ],
   "acceptance_criteria": [
     "Public functions have docstrings explaining behavior",
     "No behavior changes"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "easy"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "Documentation-only change should not alter runtime behavior"
+  ],
+  "expected_tests": [
+    "existing order-service regression suite"
+  ],
+  "expected_failure_modes": [
+    "Docstring drifts from actual behavior"
+  ]
 }

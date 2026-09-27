@@ -11,7 +11,7 @@ from datetime import datetime
 
 from sqlmodel import Field, SQLModel
 
-from app.models.enums import WorkflowState
+from app.models.enums import Environment, WorkflowState
 
 
 def gen_id() -> str:
@@ -53,6 +53,17 @@ class Workflow(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
     repair_attempts: int = 0
     human_intervention_count: int = 0
+    environment: Environment = Field(default=Environment.SANDBOX)
+    baseline_tests_passed: bool | None = None
+
+    # AI/LLM cost tracking (Part 5 — COST guardrails). Token counts are
+    # ESTIMATES derived from real prompt/response text length (chars // 4),
+    # never invented; LLMUsage.available is False in mock mode because no
+    # provider billing API is involved, so these are clearly an estimate,
+    # not exact accounting.
+    llm_call_count: int = 0
+    llm_estimated_tokens: int = 0
+    llm_estimated_cost_usd: float = 0.0
 
     # Timing (ms), populated as stages complete — used for metrics (§24.7)
     indexing_ms: int | None = None
@@ -181,3 +192,76 @@ class CIRun(SQLModel, table=True):
     url: str = ""
     conclusion: str = ""
     timestamp: datetime = Field(default_factory=utcnow)
+
+
+class GuardrailCheck(SQLModel, table=True):
+    """One evaluation of one guardrail definition against one workflow.
+
+    This is the ONLY guardrail persistence model in the system (it
+    replaces the earlier flat `GuardrailEvent`/G01-G18 schema entirely —
+    there is no parallel/legacy guardrail table). `guardrail_id` values are
+    category-scoped, e.g. "SEC-01", "CICD-07", "AI-05" — see
+    `app.services.guardrails.engine.GUARDRAIL_CATALOG` for the full
+    definition list.
+    """
+
+    id: str = Field(default_factory=gen_id, primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", index=True)
+    guardrail_id: str  # e.g. "SEC-01"
+    category: str  # one of GuardrailCategory
+    name: str
+    description: str = ""
+    purpose: str = ""
+    trigger_condition: str = ""
+    enforcement_point: str = ""  # which orchestrator checkpoint triggered this evaluation
+    severity: str = "LOW"  # one of Severity
+    status: str = "PASSED"  # one of GuardrailStatus
+    action: str = "ALLOW"  # one of GuardrailAction
+    evidence_json: str = "[]"
+    remediation: str = ""
+    configurable_threshold: str = ""  # human-readable description of the active threshold, if any
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+    evaluated_at: datetime = Field(default_factory=utcnow)
+
+
+class RiskItem(SQLModel, table=True):
+    id: str = Field(default_factory=gen_id, primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", index=True)
+    risk_id: str  # e.g. "R1"
+    title: str
+    component: str = ""
+    severity: str = "LOW"  # LOW | MEDIUM | HIGH | CRITICAL
+    likelihood: str = "LOW"  # LOW | MEDIUM | HIGH
+    blast_radius: str = ""
+    detection: str = ""
+    mitigation: str = ""
+    validation_method: str = ""
+    status: str = "OPEN"  # OPEN | MITIGATED | ACCEPTED
+    evidence_json: str = "[]"
+    source: str = ""  # llm_plan | category_metadata | static_scan
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ChaosExperiment(SQLModel, table=True):
+    id: str = Field(default_factory=gen_id, primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", index=True)
+    experiment_id: str
+    target: str
+    hypothesis: str
+    fault: str
+    expected_behavior: str
+    observed_behavior: str = ""
+    result: str = "NOT_APPLICABLE"  # PASSED | FAILED | NOT_APPLICABLE
+    environment: str = "sandbox"
+    evidence_json: str = "[]"
+    timestamp: datetime = Field(default_factory=utcnow)
+
+
+class ProductionReadinessAssessment(SQLModel, table=True):
+    id: str = Field(default_factory=gen_id, primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", index=True)
+    decision: str = "NOT_READY"  # READY | READY_WITH_WARNINGS | NOT_READY
+    reasons_json: str = "[]"
+    checklist_json: str = "{}"
+    created_at: datetime = Field(default_factory=utcnow)

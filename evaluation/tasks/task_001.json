@@ -4,13 +4,31 @@
   "category": "feature_addition",
   "intent": "Add a password reset feature. Create appropriate tests and make sure existing authentication functionality is not affected.",
   "repository": "demo-repository",
-  "expected_files": ["src/auth/service.py"],
+  "expected_files": [
+    "src/auth/service.py"
+  ],
   "acceptance_criteria": [
     "User can request a password-reset token",
     "Reset tokens expire after a fixed TTL",
     "Invalid or already-used reset tokens are rejected",
     "Existing login/registration behavior is unaffected"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "medium"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "Reset tokens stored in-memory are lost on process restart",
+    "Token delivery (e.g. email) is out of scope"
+  ],
+  "expected_tests": [
+    "valid reset flow",
+    "expired reset token rejected",
+    "invalid reset token rejected",
+    "existing login regression"
+  ],
+  "expected_failure_modes": [
+    "Reset token reused after consumption",
+    "Reset token used after TTL expiry"
+  ]
 }

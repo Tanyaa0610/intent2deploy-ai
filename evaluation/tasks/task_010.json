@@ -4,11 +4,24 @@
   "category": "refactoring",
   "intent": "Refactor the order service's internal storage to be clearer without changing its public API.",
   "repository": "demo-repository",
-  "expected_files": ["src/orders/service.py"],
+  "expected_files": [
+    "src/orders/service.py"
+  ],
   "acceptance_criteria": [
     "Public methods of OrderService keep the same signatures and behavior",
     "Existing order tests continue to pass"
   ],
-  "validation_commands": ["python3 -m pytest -q"],
-  "difficulty": "medium"
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "Internal storage refactor could break an undocumented behavioral dependency on the previous structure"
+  ],
+  "expected_tests": [
+    "full existing order-service regression suite"
+  ],
+  "expected_failure_modes": [
+    "Public method signature or behavior drifts during refactor"
+  ]
 }
