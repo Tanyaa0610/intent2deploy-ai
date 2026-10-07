@@ -1,0 +1,29 @@
+{
+  "id": "task_020",
+  "title": "Only allow refunds for successfully captured payments",
+  "category": "bug_fix",
+  "intent": "Add refund support for successfully captured payments — a refund should only be possible against a payment that was actually captured.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/refund_service.py"
+  ],
+  "acceptance_criteria": [
+    "Requesting a refund against a FAILED payment is rejected with a clear conflict error",
+    "Requesting a refund against a CAPTURED payment still succeeds within the captured amount",
+    "Existing excessive-refund and duplicate-refund rejection behavior is unaffected"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "RefundService.create_refund already validates the refund amount against the running total — this task adds the missing payment.status == CAPTURED check alongside it"
+  ],
+  "expected_tests": [
+    "refund against a failed payment is rejected",
+    "refund against a captured payment still succeeds (regression)"
+  ],
+  "expected_failure_modes": [
+    "create_refund validates only the amount, not payment.status (current gap)"
+  ]
+}

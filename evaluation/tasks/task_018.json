@@ -1,0 +1,30 @@
+{
+  "id": "task_018",
+  "title": "Enforce a maximum quantity limit per product in the cart",
+  "category": "validation_error_handling",
+  "intent": "Add a maximum quantity limit per product.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/cart_service.py"
+  ],
+  "acceptance_criteria": [
+    "Adding a quantity above config.max_quantity_per_product for one product is rejected",
+    "Adding a quantity at or below the limit still succeeds",
+    "The limit applies to the cumulative quantity of a product already in the cart plus the new amount"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "config.max_quantity_per_product already exists and is read elsewhere via get_settings() — this is a validation wiring change in CartService.add_item/update_item_quantity",
+    "The limit must be checked against the cumulative cart quantity, not just the single request, to be meaningful"
+  ],
+  "expected_tests": [
+    "adding more than the per-product limit is rejected",
+    "adding up to the limit still succeeds (regression)"
+  ],
+  "expected_failure_modes": [
+    "CartService only checks available inventory, not a per-product maximum (current gap)"
+  ]
+}

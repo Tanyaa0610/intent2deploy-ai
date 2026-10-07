@@ -2,10 +2,10 @@
   "id": "task_002",
   "title": "Fix the null-reference bug in the order service",
   "category": "bug_fix",
-  "intent": "Fix the null-reference bug in the order service.",
+  "intent": "Fix the null-reference bug in the order service's get_order_total method.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/orders/service.py"
+    "src/shopflow/services/order_service.py"
   ],
   "acceptance_criteria": [
     "Requesting the total for an unknown order id raises a clear domain error instead of crashing",
@@ -19,10 +19,10 @@
     "Callers relying on the previous crash behavior (unlikely) need to adjust"
   ],
   "expected_tests": [
-    "unknown order id raises ValueError",
+    "unknown order id raises NotFoundError",
     "existing valid-order total regression"
   ],
   "expected_failure_modes": [
-    "get_order returns None for an unknown id"
+    "get_order returns None for an unknown id and get_order_total dereferences it unchecked"
   ]
 }

@@ -3,7 +3,7 @@ from pathlib import Path
 from app.services.codegen.mock_strategies import bug_fix_orders, password_reset
 from app.services.planner.intent_classifier import classify_intent
 
-DEMO_AUTH_SERVICE = Path(__file__).resolve().parents[3] / "demo-repository" / "src" / "auth" / "service.py"
+DEMO_AUTH_SERVICE = Path(__file__).resolve().parents[3] / "demo-repository" / "src" / "shopflow" / "services" / "auth_service.py"
 
 
 def test_classify_intent_maps_to_expected_categories():
@@ -15,7 +15,7 @@ def test_classify_intent_maps_to_expected_categories():
 
 def test_password_reset_strategy_produces_grounded_change():
     content = DEMO_AUTH_SERVICE.read_text()
-    changes = password_reset({"src/auth/service.py": content})
+    changes = password_reset({"src/shopflow/services/auth_service.py": content})
     assert len(changes) == 1
     assert "generate_password_reset_token" in changes[0].new_content
     assert changes[0].new_content != changes[0].old_content

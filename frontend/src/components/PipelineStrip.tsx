@@ -1,11 +1,11 @@
 import type { PipelineStage } from "../types";
 
 const STAGE_CLASS: Record<string, string> = {
-  PASSED: "clear",
+  PASSED: "done",
   FAILED: "attention",
   BLOCKED: "attention",
   AWAITING_APPROVAL: "warn",
-  RUNNING: "warn",
+  RUNNING: "active",
   SKIPPED: "",
   NOT_APPLICABLE: "",
   PENDING: "",
@@ -14,16 +14,16 @@ const STAGE_CLASS: Record<string, string> = {
 export function PipelineStrip({ stages }: { stages: PipelineStage[] }) {
   if (stages.length === 0) return null;
   return (
-    <div className="gr-pipeline" style={{ marginBottom: 4 }}>
-      {stages.map((s, i) => (
-        <div key={s.name} style={{ display: "flex", alignItems: "center" }}>
-          <div className={`gr-pipeline-node ${STAGE_CLASS[s.status] || ""}`} title={s.output || s.status}>
-            <div className="n">{s.name}</div>
-            <div className="c">{s.status.replace(/_/g, " ").toLowerCase()}</div>
+    <div className="stepper-wrap">
+      <div className="stepper">
+        {stages.map((s) => (
+          <div key={s.name} className={`stepper-step ${STAGE_CLASS[s.status] || ""}`} title={s.output || s.status}>
+            <span className="marker" />
+            <span className="label">{s.name}</span>
+            <span className="meta">{s.status.replace(/_/g, " ").toLowerCase()}</span>
           </div>
-          {i < stages.length - 1 && <span className="gr-pipeline-arrow">→</span>}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

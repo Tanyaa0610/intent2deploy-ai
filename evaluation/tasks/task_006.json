@@ -5,7 +5,7 @@
   "intent": "Add session token expiry so that tokens do not remain valid forever.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/auth/service.py"
+    "src/shopflow/services/auth_service.py"
   ],
   "acceptance_criteria": [
     "Session tokens are rejected once their TTL has elapsed",

@@ -1,0 +1,29 @@
+{
+  "id": "task_021",
+  "title": "Prevent failed payments from confirming an order",
+  "category": "bug_fix",
+  "intent": "Improve failed-payment handling so failed orders cannot transition to confirmed.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/order_service.py"
+  ],
+  "acceptance_criteria": [
+    "A declined or timed-out payment leaves the order in FAILED status, not CONFIRMED",
+    "A successfully captured payment still confirms the order (regression)"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "This is a direct correctness bug: apply_payment_result checks `payment.amount > 0` (always true) instead of `payment.status == PaymentStatus.CAPTURED`",
+    "A customer could be told their order is confirmed when the charge actually failed"
+  ],
+  "expected_tests": [
+    "a declined payment results in a FAILED order, not CONFIRMED",
+    "a captured payment still results in a CONFIRMED order (regression)"
+  ],
+  "expected_failure_modes": [
+    "apply_payment_result checks payment.amount > 0 instead of payment.status (current bug)"
+  ]
+}

@@ -31,29 +31,10 @@ from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 from app import models  # noqa: F401,E402
 from app.models.enums import WorkflowState  # noqa: E402
 from app.services import orchestrator as orch  # noqa: E402
+from app.services.evaluation.baseline_runner import collect_pristine_test_ids  # noqa: E402
 from app.services.orchestrator import OrchestratorError  # noqa: E402
 from app.services.providers.local_provider import LocalProvider  # noqa: E402
 from app.services.validation.sandbox import destroy_workspace  # noqa: E402
-
-
-def collect_baseline_tests(repo_path: Path) -> set[str]:
-    """Collect the set of test node IDs that pass in the pristine
-    repository, used as real (not proxy) ground truth for the regression
-    metric."""
-    import subprocess
-
-    passed_ids: set[str] = set()
-    proc_v = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
-        cwd=str(repo_path),
-        capture_output=True,
-        text=True,
-    )
-    for line in proc_v.stdout.splitlines():
-        line = line.strip()
-        if "::" in line and line.startswith("tests/"):
-            passed_ids.add(line.split(" ")[0])
-    return passed_ids
 
 
 def run_one_task(
@@ -78,7 +59,20 @@ def run_one_task(
         "retrieval_precision_at_k": None,
         "retrieval_recall_at_k": None,
         "unnecessary_modification_ratio": None,
+        "touched_expected_files": None,
         "regressed_tests": [],
+        "guardrail_total": 0,
+        "guardrail_warnings": 0,
+        "guardrail_blocked": 0,
+        "guardrail_failed": 0,
+        "stage_latency_ms": {
+            "indexing": None,
+            "planning": None,
+            "codegen": None,
+            "testgen": None,
+            "validation": None,
+            "total": None,
+        },
         "error": None,
     }
 
@@ -111,6 +105,8 @@ def run_one_task(
         if expected_files and changed_files:
             unexpected = changed_files - expected_files
             result["unnecessary_modification_ratio"] = round(len(unexpected) / len(changed_files), 3)
+        if expected_files:
+            result["touched_expected_files"] = round(len(changed_files & expected_files) / len(expected_files), 3)
 
         wf = orch.approve_changes(session, wf.id, True, comment="auto-approved by evaluation runner")
         wf = orch.run_test_generation(session, wf.id, provider)
@@ -159,6 +155,28 @@ def run_one_task(
         result["completed"] = wf.state == WorkflowState.COMPLETED and has_real_change
         result["execution_time_ms"] = int((time.monotonic() - started) * 1000)
 
+        # Guardrail check counts, read from the real persisted rows the
+        # orchestrator already wrote during this run (guardrails fire
+        # automatically at each checkpoint; nothing is re-evaluated here).
+        from app.models.models import GuardrailCheck
+
+        checks = session.exec(select(GuardrailCheck).where(GuardrailCheck.workflow_id == wf.id)).all()
+        result["guardrail_total"] = len(checks)
+        result["guardrail_warnings"] = sum(1 for c in checks if c.status == "WARNING")
+        result["guardrail_blocked"] = sum(1 for c in checks if c.status == "BLOCKED")
+        result["guardrail_failed"] = sum(1 for c in checks if c.status == "FAILED")
+
+        # Per-stage latency, already computed by the orchestrator and
+        # persisted on the Workflow row — just surfaced here.
+        result["stage_latency_ms"] = {
+            "indexing": wf.indexing_ms,
+            "planning": wf.planning_ms,
+            "codegen": wf.codegen_ms,
+            "testgen": wf.testgen_ms,
+            "validation": wf.validation_ms,
+            "total": wf.total_ms,
+        }
+
     except OrchestratorError as exc:
         result["error"] = str(exc)
     finally:
@@ -190,7 +208,7 @@ def main() -> None:
         db_path.unlink()
 
     print(f"Collecting baseline test suite from {args.repo} ...")
-    baseline_tests = collect_baseline_tests(Path(args.repo))
+    baseline_tests = collect_pristine_test_ids(Path(args.repo))
     print(f"Baseline test suite: {len(baseline_tests)} tests")
 
     engine = create_engine(f"sqlite:///{db_path}")
@@ -220,6 +238,12 @@ def main() -> None:
     recalls = [r["retrieval_recall_at_k"] for r in task_results if r["retrieval_recall_at_k"] is not None]
     unnecessary = [r["unnecessary_modification_ratio"] for r in task_results if r["unnecessary_modification_ratio"] is not None]
     regressed_count = sum(1 for r in task_results if r["regressed_tests"])
+    avg_guardrail_warnings = sum(r["guardrail_warnings"] for r in task_results) / n
+    avg_guardrail_blocked = sum(r["guardrail_blocked"] for r in task_results) / n
+
+    def _avg_stage(stage: str) -> float | None:
+        vals = [r["stage_latency_ms"][stage] for r in task_results if r["stage_latency_ms"][stage] is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
 
     summary = {
         "timestamp": datetime.utcnow().isoformat(),
@@ -240,6 +264,15 @@ def main() -> None:
             "if it passed before this task's changes and shows FAILED in the task's "
             "final unit_tests run."
         ),
+        "avg_guardrail_warnings": round(avg_guardrail_warnings, 2),
+        "avg_guardrail_blocked": round(avg_guardrail_blocked, 2),
+        "avg_stage_latency_ms": {
+            "indexing": _avg_stage("indexing"),
+            "planning": _avg_stage("planning"),
+            "codegen": _avg_stage("codegen"),
+            "testgen": _avg_stage("testgen"),
+            "validation": _avg_stage("validation"),
+        },
         "resource_consumption": "Not available from provider (LLM_MODE=mock; token/cost accounting requires LLM_MODE=live with a configured provider)",
         "results": task_results,
     }
@@ -262,6 +295,9 @@ def main() -> None:
         f"Retrieval Recall@K (avg): {summary['avg_retrieval_recall_at_k']}",
         f"Unnecessary Modification Ratio (proxy, avg): {summary['avg_unnecessary_modification_ratio_proxy']}",
         f"Regression Rate: {summary['regression_rate'] * 100:.0f}% ({summary['regression_rate_note']})",
+        f"Average Guardrail Warnings: {summary['avg_guardrail_warnings']}",
+        f"Average Guardrail Blocks: {summary['avg_guardrail_blocked']}",
+        f"Average Stage Latency (ms): {summary['avg_stage_latency_ms']}",
         f"Resource Consumption: {summary['resource_consumption']}",
         "",
         "| Task | Category | Completed | Final Status | Repairs |",

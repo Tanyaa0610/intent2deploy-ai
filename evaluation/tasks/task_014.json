@@ -1,0 +1,30 @@
+{
+  "id": "task_014",
+  "title": "Prevent cancelling orders after shipment",
+  "category": "bug_fix",
+  "intent": "Prevent customers from cancelling orders after shipment.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/order_service.py"
+  ],
+  "acceptance_criteria": [
+    "Cancelling a SHIPPED order is rejected with a clear conflict error",
+    "Cancelling a DELIVERED or already-CANCELLED order remains rejected (regression)",
+    "Cancelling a PENDING/CONFIRMED/PROCESSING order remains allowed (regression)"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "Over-broadening the cancel block could incorrectly prevent legitimate cancellations of earlier-stage orders"
+  ],
+  "expected_tests": [
+    "cancelling a shipped order is rejected",
+    "cancelling a delivered order still rejected (regression)",
+    "cancelling a pending order still succeeds (regression)"
+  ],
+  "expected_failure_modes": [
+    "_CANNOT_CANCEL omits OrderStatus.SHIPPED (current gap)"
+  ]
+}

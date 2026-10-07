@@ -1,29 +1,29 @@
 {
   "id": "task_007",
-  "title": "Add the ability to deactivate a user account",
+  "title": "Invalidate sessions immediately on account deactivation",
   "category": "database_service_change",
-  "intent": "Add the ability to deactivate a user account so a disabled user can no longer log in.",
+  "intent": "When an administrator deactivates a user account, make sure that user's existing session tokens are invalidated immediately, not just blocked from future logins.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/users/model.py",
-    "src/auth/service.py"
+    "src/shopflow/services/auth_service.py",
+    "src/shopflow/services/user_service.py"
   ],
   "acceptance_criteria": [
-    "A deactivated user cannot log in",
-    "Existing active-user login is unaffected"
+    "A deactivated user's existing session token is rejected immediately after deactivation",
+    "Existing active-user login and token validation is unaffected"
   ],
   "validation_commands": [
     "python3 -m pytest -q"
   ],
   "difficulty": "medium",
   "expected_risks": [
-    "Deactivated user's existing session token must also stop working"
+    "Revoking sessions on deactivation is a cross-service change (UserService calling into AuthService)"
   ],
   "expected_tests": [
-    "deactivated user cannot log in",
-    "active user login regression"
+    "deactivated user's existing token is rejected",
+    "active user token validation regression"
   ],
   "expected_failure_modes": [
-    "Deactivated user retains a still-valid session token"
+    "Deactivated user retains a still-valid session token (current bug)"
   ]
 }

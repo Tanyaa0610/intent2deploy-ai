@@ -318,6 +318,19 @@ def get_report(workflow_id: str, session: Session = Depends(get_session)) -> dic
     return _wrap(build_report, session, workflow_id)
 
 
+@router.get("/{workflow_id}/report.json")
+def get_report_json_download(workflow_id: str, session: Session = Depends(get_session)):
+    """Same trace as GET /report (single source of truth — see
+    app.services.reporting), served as a downloadable attachment."""
+    from fastapi.responses import JSONResponse
+
+    from app.services.reporting import build_report
+
+    trace = _wrap(build_report, session, workflow_id)
+    filename = f"intent2deploy-workflow-{workflow_id}.json"
+    return JSONResponse(content=trace, media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 @router.get("/{workflow_id}/report.md")
 def get_report_markdown(workflow_id: str, session: Session = Depends(get_session)):
     from fastapi.responses import PlainTextResponse
@@ -325,7 +338,12 @@ def get_report_markdown(workflow_id: str, session: Session = Depends(get_session
     from app.services.reporting import build_report, report_to_markdown
 
     trace = _wrap(build_report, session, workflow_id)
-    return PlainTextResponse(report_to_markdown(trace), media_type="text/markdown")
+    filename = f"intent2deploy-workflow-{workflow_id}.md"
+    return PlainTextResponse(
+        report_to_markdown(trace),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

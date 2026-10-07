@@ -1,0 +1,28 @@
+{
+  "id": "task_015",
+  "title": "Restrict inventory updates to administrators",
+  "category": "authentication_security",
+  "intent": "Allow only administrators to update product inventory.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/api/inventory.py"
+  ],
+  "acceptance_criteria": [
+    "A non-admin authenticated user calling the inventory-adjust endpoint is rejected with 403",
+    "An admin calling the inventory-adjust endpoint still succeeds"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "This endpoint is the one write operation in the API that does not yet use the existing require_admin dependency, unlike products.py's equivalent endpoints"
+  ],
+  "expected_tests": [
+    "non-admin cannot adjust inventory",
+    "admin can still adjust inventory (regression)"
+  ],
+  "expected_failure_modes": [
+    "adjust_inventory depends on get_current_user instead of require_admin (current gap)"
+  ]
+}

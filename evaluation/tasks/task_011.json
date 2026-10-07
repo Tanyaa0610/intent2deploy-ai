@@ -4,7 +4,7 @@
   "category": "reliability_improvement",
   "intent": "Users are sometimes getting duplicate orders when the payment provider times out. Fix the issue and make the system reliable under payment-provider failures.",
   "repository": "demo-repository",
-  "expected_files": ["src/payments/service.py"],
+  "expected_files": ["src/shopflow/services/payment_service.py"],
   "acceptance_criteria": [
     "Retrying a charge for the same order with the same idempotency key returns the original charge instead of creating a new one",
     "A charge for a different order or a new idempotency key still creates a new charge",
@@ -12,7 +12,7 @@
   ],
   "expected_risks": [
     "Duplicate charges on payment-provider timeout are a direct financial and trust risk",
-    "Idempotency cache is in-memory and lost on process restart",
+    "Idempotency lookup is keyed on (order_id, idempotency_key) within this SQLite database; it is correctly durable across restarts, unlike an in-memory cache",
     "Retry storms from a flaky provider are not fully addressed by idempotency alone"
   ],
   "expected_tests": [

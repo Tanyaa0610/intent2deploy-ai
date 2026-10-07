@@ -1,0 +1,32 @@
+{
+  "id": "task_016",
+  "title": "Add retry handling for payment provider timeouts",
+  "category": "reliability_improvement",
+  "intent": "Add retry handling for payment provider timeouts.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/payment_service.py",
+    "src/shopflow/integrations/payment_provider.py"
+  ],
+  "acceptance_criteria": [
+    "A provider timeout is retried a bounded number of times before being recorded as FAILED",
+    "A provider timeout that succeeds on retry results in a CAPTURED payment, not a FAILED one",
+    "A non-timeout decline is not retried (fails fast)"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "Retrying without the idempotency protection from task_011/task_012 could itself create duplicate charges — this task is most meaningful once idempotency exists",
+    "An unbounded retry loop could hang a request; the bound must be explicit"
+  ],
+  "expected_tests": [
+    "timeout followed by success is eventually captured",
+    "timeout retried a bounded number of times then recorded as failed",
+    "non-timeout decline is not retried"
+  ],
+  "expected_failure_modes": [
+    "charge_order catches PaymentProviderTimeout and immediately records FAILED with no retry (current gap)"
+  ]
+}

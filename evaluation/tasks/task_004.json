@@ -1,31 +1,32 @@
 {
   "id": "task_004",
-  "title": "Add an endpoint to cancel an order",
+  "title": "Add an endpoint to reactivate a deactivated user account",
   "category": "api_modification",
-  "intent": "Add an API endpoint that allows cancelling an existing order.",
+  "intent": "Add an API endpoint that allows an administrator to reactivate a previously deactivated user account.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/api/app.py",
-    "src/orders/service.py"
+    "src/shopflow/api/users.py"
   ],
   "acceptance_criteria": [
-    "A DELETE or POST endpoint exists to cancel an order",
-    "Cancelling an unknown order returns a clear error response"
+    "An admin-only endpoint exists to reactivate a deactivated user",
+    "Reactivating an unknown user returns a clear error response",
+    "A non-admin calling the endpoint is rejected"
   ],
   "validation_commands": [
     "python3 -m pytest -q"
   ],
-  "difficulty": "medium",
+  "difficulty": "easy",
   "expected_risks": [
-    "New endpoint could be called for an already-cancelled or unknown order",
-    "State transition on cancel needs to be well-defined"
+    "The endpoint must be admin-only, matching the existing deactivate endpoint's authorization",
+    "UserService.activate_user already exists and is unit-tested-free, so this is primarily an API wiring change"
   ],
   "expected_tests": [
-    "cancel known order succeeds",
-    "cancel unknown order returns a clear error"
+    "admin reactivates a deactivated user succeeds",
+    "reactivate unknown user returns a clear error",
+    "non-admin cannot reactivate a user"
   ],
   "expected_failure_modes": [
-    "Cancelling an order that does not exist",
-    "Double-cancelling the same order"
+    "Reactivating a user that does not exist",
+    "A non-admin attempting to reactivate a user"
   ]
 }

@@ -5,7 +5,7 @@
   "intent": "Add tests for the order service covering what happens when an order does not exist, and fix any bug you find in the process.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/orders/service.py",
+    "src/shopflow/services/order_service.py",
     "tests/test_orders.py"
   ],
   "acceptance_criteria": [
@@ -23,6 +23,6 @@
     "missing-order case reproduces then passes after fix"
   ],
   "expected_failure_modes": [
-    "get_order returns None for an unknown id"
+    "get_order returns None for an unknown id and get_order_total dereferences it unchecked"
   ]
 }

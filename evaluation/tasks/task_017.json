@@ -1,0 +1,30 @@
+{
+  "id": "task_017",
+  "title": "Add structured logging for failed payments",
+  "category": "observability_logging",
+  "intent": "Add structured logging for failed payments without exposing sensitive information.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/payment_service.py"
+  ],
+  "acceptance_criteria": [
+    "A failed payment attempt (timeout or decline) logs a structured event via utils/logging.py",
+    "Logged fields never include raw provider exception internals beyond what redact() already allows",
+    "Successful payments are unaffected"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "get_logger and redact already exist and work (utils/logging.py) — this is a wiring change, not new logging infrastructure",
+    "Logging the wrong field (e.g. a future card/token field) would defeat the purpose of redact()"
+  ],
+  "expected_tests": [
+    "a failed payment emits a structured log entry",
+    "the logged entry does not contain unredacted sensitive fields"
+  ],
+  "expected_failure_modes": [
+    "PaymentService never calls get_logger/redact on the failure path (current gap)"
+  ]
+}

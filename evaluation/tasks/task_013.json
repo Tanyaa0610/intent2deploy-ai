@@ -1,0 +1,30 @@
+{
+  "id": "task_013",
+  "title": "Add a low-stock notification when inventory falls below threshold",
+  "category": "feature_addition",
+  "intent": "Add a low-stock notification whenever inventory falls below the configured threshold.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/inventory_service.py"
+  ],
+  "acceptance_criteria": [
+    "Decreasing stock to at or below the configured low-stock threshold emits a low-inventory notification",
+    "Decreasing stock to a level above the threshold does not emit a notification",
+    "Existing stock increase/decrease behavior is unaffected"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "easy",
+  "expected_risks": [
+    "NotificationService.notify_low_inventory and config.low_stock_threshold already exist and work — this is primarily a wiring change in InventoryService.decrease_stock",
+    "A notification could fire repeatedly on every decrease while already below threshold unless explicitly bounded (acceptable for this demo scope)"
+  ],
+  "expected_tests": [
+    "decreasing stock below threshold emits a low-inventory notification",
+    "decreasing stock while staying above threshold emits no notification"
+  ],
+  "expected_failure_modes": [
+    "decrease_stock never calls notify_low_inventory (current gap)"
+  ]
+}

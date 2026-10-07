@@ -96,9 +96,7 @@ export function RepositoryIntelligencePage() {
       </p>
 
       {error && (
-        <div className="callout" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>
-          {error}
-        </div>
+        <div className="callout callout-danger">{error}</div>
       )}
 
       <div className="grid grid-2">
@@ -118,20 +116,20 @@ export function RepositoryIntelligencePage() {
                 ))}
               </select>
               {activeRepo && (
-                <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--text-muted)" }}>
-                  <div><b>Files indexed:</b> {activeRepo.file_count}</div>
-                  <div><b>Chunks created:</b> {activeRepo.chunk_count}</div>
-                  <div><b>Vector store:</b> ChromaDB</div>
-                  <div>
-                    <b>Status:</b>{" "}
-                    {activeRepo.indexed_at ? (
-                      <span className="badge badge-success">Indexed</span>
-                    ) : (
-                      <span className="badge badge-neutral">Not indexed</span>
-                    )}
+                <div style={{ marginTop: 14 }}>
+                  <span className={`status ${activeRepo.indexed_at ? "success" : "neutral"}`}>
+                    <span className="dot" />
+                    {activeRepo.indexed_at ? "Indexed" : "Not indexed"}
+                  </span>
+                  <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4 }}>
+                    {activeRepo.file_count} files · {activeRepo.chunk_count} chunks · ChromaDB
                   </div>
-                  <div><b>Indexed at:</b> {activeRepo.indexed_at ? new Date(activeRepo.indexed_at).toLocaleString() : "—"}</div>
-                  <div><b>Local path:</b> <code style={{ fontSize: 11.5 }}>{activeRepo.local_path}</code></div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 10 }}>
+                    {activeRepo.indexed_at ? `Indexed ${new Date(activeRepo.indexed_at).toLocaleString()}` : "Not yet indexed"}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 2 }}>
+                    <code>{activeRepo.local_path}</code>
+                  </div>
                 </div>
               )}
             </>
@@ -139,7 +137,7 @@ export function RepositoryIntelligencePage() {
         </div>
 
         <div className="card">
-          <div className="card-title">Index a Repository</div>
+          <div className="card-title">Index a repository</div>
           <label>Project name</label>
           <input value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} />
           <label>Repository path (local)</label>
@@ -157,7 +155,7 @@ export function RepositoryIntelligencePage() {
       </div>
 
       <div className="card">
-        <div className="card-title">Semantic Search</div>
+        <div className="card-title">Semantic search</div>
         <div style={{ display: "flex", gap: 8 }}>
           <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Where is payment processing implemented?" />
           <input
@@ -201,9 +199,11 @@ export function RepositoryIntelligencePage() {
             {qa.cited_files.length === 0 ? (
               <p style={{ fontSize: 12.5, color: "var(--text-faint)" }}>No sources were cited.</p>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", marginBottom: 8 }}>
                 {qa.cited_files.map((f) => (
-                  <code key={f} className="badge badge-accent">{f}</code>
+                  <code key={f} className="tag accent" style={{ fontFamily: "var(--mono)" }}>
+                    {f}
+                  </code>
                 ))}
               </div>
             )}

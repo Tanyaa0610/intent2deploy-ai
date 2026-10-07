@@ -159,9 +159,9 @@ export function GuardrailsPage() {
 
   function pipelineNodeClass(category: string | null, index: number): string {
     if (category === null) {
-      if (index === 0) return ""; // Developer Input: neutral entry point
+      if (index === 0) return "done"; // Developer Input: intent is always present here
       // Final Readiness node
-      if (readiness === "READY") return "clear";
+      if (readiness === "READY") return "done";
       if (readiness === "READY_WITH_WARNINGS") return "warn";
       if (readiness === "NOT_READY") return "attention";
       return "";
@@ -170,7 +170,7 @@ export function GuardrailsPage() {
     if (!c || c.total === 0) return "";
     if (c.blocked > 0 || c.failed > 0) return "attention";
     if (c.warnings > 0) return "warn";
-    return "clear";
+    return "done";
   }
 
   function pipelineNodeCaption(category: string | null, index: number): string {
@@ -207,17 +207,13 @@ export function GuardrailsPage() {
 
   return (
     <div>
-      <h1 className="page-title">AI-DevOps Guardrail Control Plane</h1>
+      <h1 className="page-title">Guardrails &amp; Safety</h1>
       <p className="page-subtitle">
-        Every result below is read live from <code>GuardrailCheck</code> rows produced by the backend guardrail
-        engine — SECURITY, INFRASTRUCTURE, CI/CD, DEPLOYMENT, COST, AI/LLM, INPUT, and OUTPUT.
+        Live results from <code>GuardrailCheck</code> rows produced by the backend guardrail engine — SECURITY,
+        INFRASTRUCTURE, CI/CD, DEPLOYMENT, COST, AI/LLM, INPUT, and OUTPUT.
       </p>
 
-      {error && (
-        <div className="callout" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="callout callout-danger">{error}</div>}
 
       <div className="card">
         <div className="card-title">Workflow</div>
@@ -250,22 +246,22 @@ export function GuardrailsPage() {
       {workflowId && (
         <>
           <div className="card">
-            <div className="card-title">Developer Intent → Guardrails → Final Readiness</div>
-            <div className="gr-pipeline">
-              {PIPELINE_STAGES.map((stage, i) => (
-                <div key={stage.label} style={{ display: "flex", alignItems: "center" }}>
-                  <div className={`gr-pipeline-node ${pipelineNodeClass(stage.category, i)}`}>
-                    <div className="n">{stage.label}</div>
-                    <div className="c">{pipelineNodeCaption(stage.category, i)}</div>
+            <div className="card-title">Intent → Guardrails → Readiness</div>
+            <div className="stepper-wrap">
+              <div className="stepper">
+                {PIPELINE_STAGES.map((stage, i) => (
+                  <div key={stage.label} className={`stepper-step ${pipelineNodeClass(stage.category, i)}`}>
+                    <span className="marker" />
+                    <span className="label">{stage.label}</span>
+                    <span className="meta">{pipelineNodeCaption(stage.category, i)}</span>
                   </div>
-                  {i < PIPELINE_STAGES.length - 1 && <span className="gr-pipeline-arrow">→</span>}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
           <div className="card-title" style={{ marginTop: 4 }}>
-            Overall Guardrail Summary
+            Overall summary
           </div>
           {!summary?.has_data ? (
             <div className="card">
@@ -275,58 +271,70 @@ export function GuardrailsPage() {
               </div>
             </div>
           ) : (
-            <div className="gr-kpis">
-              <div className="gr-kpi">
-                <span className="n">{totals?.total ?? 0}</span>
-                <span className="l">Total checks</span>
+            <div className="metrics-strip">
+              <div className="metric">
+                <span className="stat-value">{totals?.total ?? 0}</span>
+                <span className="stat-label">Total checks</span>
               </div>
-              <div className="gr-kpi passed">
-                <span className="n">{totals?.passed ?? 0}</span>
-                <span className="l">Passed</span>
+              <div className="metric passed">
+                <span className="stat-value">{totals?.passed ?? 0}</span>
+                <span className="stat-label">Passed</span>
               </div>
-              <div className="gr-kpi warnings">
-                <span className="n">{totals?.warnings ?? 0}</span>
-                <span className="l">Warnings</span>
+              <div className="metric warnings">
+                <span className="stat-value">{totals?.warnings ?? 0}</span>
+                <span className="stat-label">Warnings</span>
               </div>
-              <div className="gr-kpi blocked">
-                <span className="n">{totals?.blocked ?? 0}</span>
-                <span className="l">Blocked</span>
+              <div className="metric blocked">
+                <span className="stat-value">{totals?.blocked ?? 0}</span>
+                <span className="stat-label">Blocked</span>
               </div>
-              <div className="gr-kpi blocked">
-                <span className="n">{totals?.failed ?? 0}</span>
-                <span className="l">Failed</span>
+              <div className="metric blocked">
+                <span className="stat-value">{totals?.failed ?? 0}</span>
+                <span className="stat-label">Failed</span>
               </div>
-              <div className="gr-kpi approval">
-                <span className="n">{summary.approval_required}</span>
-                <span className="l">Require approval</span>
+              <div className="metric approval">
+                <span className="stat-value">{summary.approval_required}</span>
+                <span className="stat-label">Require approval</span>
               </div>
             </div>
           )}
 
-          <div className="card-title">Category-Wise Breakdown</div>
-          <div className="gr-category-grid" style={{ marginBottom: 20 }}>
-            {GUARDRAIL_CATEGORIES.map((cat) => {
-              const c = summary?.categories[cat];
-              return (
-                <button
-                  key={cat}
-                  className={`gr-category-card ${categoryFilter === cat ? "active" : ""}`}
-                  onClick={() => setCategoryFilter(categoryFilter === cat ? "" : cat)}
-                >
-                  <div className="cat-name">{CATEGORY_LABELS[cat]}</div>
-                  <div className="cat-total">{c?.total ?? 0}</div>
-                  <div className="gr-cat-stats">
-                    <span className="gr-cat-stat passed">{c?.passed ?? 0} passed</span>
-                    <span className="gr-cat-stat warnings">{c?.warnings ?? 0} warn</span>
-                    <span className="gr-cat-stat blocked">{(c?.blocked ?? 0) + (c?.failed ?? 0)} blocked</span>
-                  </div>
-                </button>
-              );
-            })}
+          <div className="card">
+            <div className="card-title">Category breakdown</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Total</th>
+                  <th>Passed</th>
+                  <th>Warnings</th>
+                  <th>Blocked</th>
+                </tr>
+              </thead>
+              <tbody>
+                {GUARDRAIL_CATEGORIES.map((cat) => {
+                  const c = summary?.categories[cat];
+                  const active = categoryFilter === cat;
+                  return (
+                    <tr
+                      key={cat}
+                      className={`gr-row-clickable ${active ? "gr-row-active" : ""}`}
+                      onClick={() => setCategoryFilter(active ? "" : cat)}
+                    >
+                      <td>{CATEGORY_LABELS[cat]}</td>
+                      <td>{c?.total ?? 0}</td>
+                      <td>{c?.passed ?? 0}</td>
+                      <td>{c?.warnings ?? 0}</td>
+                      <td>{(c?.blocked ?? 0) + (c?.failed ?? 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           <div className="card">
-            <div className="card-title">Filter Guardrail Results</div>
+            <div className="card-title">Filter results</div>
             <div className="gr-filters">
               <div className="field">
                 <label>Category</label>
@@ -418,7 +426,7 @@ export function GuardrailsPage() {
           </div>
 
           <div className="card">
-            <div className="card-title">Guardrail Execution Timeline</div>
+            <div className="card-title">Execution timeline</div>
             {timeline.length === 0 ? (
               <div className="empty-state">No guardrail activity recorded yet for this workflow.</div>
             ) : (
@@ -434,7 +442,7 @@ export function GuardrailsPage() {
                         <code>{t.guardrail_id}</code> {t.name}
                       </span>
                       <StatusBadge state={t.status} />
-                      {t.approval_required && <span className="badge badge-accent">approval required</span>}
+                      {t.approval_required && <span className="tag accent">approval required</span>}
                     </div>
                     <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 3 }}>
                       {CATEGORY_LABELS[t.category] || t.category} · {t.enforcement_point} ·{" "}

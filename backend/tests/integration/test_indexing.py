@@ -14,13 +14,13 @@ def test_retrieval_changes_with_different_queries(demo_repo_copy):
     index_repository(demo_repo_copy, "test_collection_retrieval")
 
     auth_results = retrieve("test_collection_retrieval", "password reset authentication", top_k=5)
-    orders_results = retrieve("test_collection_retrieval", "order total null reference bug", top_k=5)
+    orders_results = retrieve("test_collection_retrieval", "order service cancel order status", top_k=5)
 
     auth_files = {r.file for r in auth_results}
     orders_files = {r.file for r in orders_results}
 
-    assert "src/auth/service.py" in auth_files
-    assert "src/orders/service.py" in orders_files
+    assert "src/shopflow/services/auth_service.py" in auth_files
+    assert "src/shopflow/services/order_service.py" in orders_files
     # Different queries must not return identical top results (proves
     # retrieval is not hardcoded/static).
     assert auth_files != orders_files

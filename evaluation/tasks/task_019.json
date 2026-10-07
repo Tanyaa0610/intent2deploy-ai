@@ -1,0 +1,30 @@
+{
+  "id": "task_019",
+  "title": "Restore reserved inventory when an order is cancelled",
+  "category": "bug_fix",
+  "intent": "Add an order cancellation workflow that restores reserved inventory.",
+  "repository": "demo-repository",
+  "expected_files": [
+    "src/shopflow/services/order_service.py"
+  ],
+  "acceptance_criteria": [
+    "Cancelling an order restores the inventory quantity reserved for each of its line items",
+    "Cancelling an order that is not eligible for cancellation still raises a conflict error and does not touch inventory",
+    "Existing order creation and inventory reservation are unaffected"
+  ],
+  "validation_commands": [
+    "python3 -m pytest -q"
+  ],
+  "difficulty": "medium",
+  "expected_risks": [
+    "InventoryService.increase_stock already exists and is correct — this task wires OrderService.cancel_order to call it once per order item",
+    "Restoring inventory for an order that was already (incorrectly) cancellable twice would double-restore stock — must only run once per successful cancellation"
+  ],
+  "expected_tests": [
+    "cancelling a pending order restores the reserved inventory for each item",
+    "cancelling an ineligible order still fails and leaves inventory unchanged (regression)"
+  ],
+  "expected_failure_modes": [
+    "cancel_order updates status but never calls InventoryService to restore stock (current gap)"
+  ]
+}

@@ -5,7 +5,7 @@
   "intent": "Add a password reset feature. Create appropriate tests and make sure existing authentication functionality is not affected.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/auth/service.py"
+    "src/shopflow/services/auth_service.py"
   ],
   "acceptance_criteria": [
     "User can request a password-reset token",

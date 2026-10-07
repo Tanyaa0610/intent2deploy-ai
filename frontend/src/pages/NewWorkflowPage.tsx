@@ -9,13 +9,27 @@ type ProgressStage = "repo" | "intent" | "indexing" | "planning" | "done";
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/;
 
-const EXAMPLE_PROMPTS = [
-  "Payment provider timeout is causing duplicate charges when the same order is retried. Add idempotency handling and tests.",
-  "Add password reset functionality with appropriate tests.",
-  "Find why this API is returning intermittent 500 errors and propose a fix.",
-];
+const PAYMENT_DEMO_INTENT =
+  "Payment provider timeout is causing duplicate charges when the same order is retried. Add idempotency handling and tests.";
 
-const PAYMENT_DEMO_INTENT = EXAMPLE_PROMPTS[0];
+const EXAMPLES: { title: string; description: string; intent: string; demo?: boolean }[] = [
+  {
+    title: "Payment reliability",
+    description: "Prevent duplicate charges when a payment provider times out.",
+    intent: PAYMENT_DEMO_INTENT,
+    demo: true,
+  },
+  {
+    title: "Password reset",
+    description: "Add password reset functionality with appropriate tests.",
+    intent: "Add password reset functionality with appropriate tests.",
+  },
+  {
+    title: "Intermittent 500s",
+    description: "Find why this API is returning intermittent 500 errors and propose a fix.",
+    intent: "Find why this API is returning intermittent 500 errors and propose a fix.",
+  },
+];
 
 function repoLabel(source: RepoSource, value: string): string {
   if (source === "github") {
@@ -159,14 +173,13 @@ export function NewWorkflowPage() {
 
   if (phase !== "form") {
     return (
-      <div className="entry-page">
-        <div className="entry-hero">
-          <h1>Intent2Deploy AI</h1>
-          <p className="tagline">From intent to validated software</p>
-        </div>
-        <div className="entry-box">
-          <div className="entry-prompt-label">{phase === "error" ? "Workflow could not be started" : "Analyzing your request…"}</div>
-          <div className="entry-progress">
+      <div>
+        <h1 className="page-title">New Workflow</h1>
+        <p className="page-subtitle">{phase === "error" ? "Workflow could not be started" : "Starting workflow…"}</p>
+
+        <div className="card" style={{ maxWidth: 520 }}>
+          <div className="card-title">Progress</div>
+          <div className="step-list">
             {PROGRESS_ITEMS.map((item, i) => {
               const itemIndex = STAGE_ORDER.indexOf(item.key);
               const currentIndex = STAGE_ORDER.indexOf(stage);
@@ -175,8 +188,8 @@ export function NewWorkflowPage() {
               const isActive = !isError && phase === "running" && itemIndex === currentIndex;
               const cls = isError ? "error" : isDone ? "done" : isActive ? "active" : "";
               return (
-                <div key={i} className={`entry-progress-item ${cls}`}>
-                  <span className="icon">{isError ? "✗" : isDone ? "✓" : isActive ? "" : "○"}</span>
+                <div key={i} className={`step-item ${cls}`}>
+                  <span className="dot" />
                   <span>{item.label}</span>
                 </div>
               );
@@ -184,7 +197,7 @@ export function NewWorkflowPage() {
           </div>
           {phase === "error" && (
             <>
-              <div className="callout" style={{ background: "var(--danger-soft)", color: "var(--danger)", marginTop: 14 }} role="alert">
+              <div className="callout callout-danger" style={{ marginTop: 14 }} role="alert">
                 {runError}
               </div>
               <div className="btn-row">
@@ -200,133 +213,116 @@ export function NewWorkflowPage() {
   }
 
   return (
-    <div className="entry-page">
-      <div className="entry-hero">
-        <h1>Intent2Deploy AI</h1>
-        <p className="tagline">From intent to validated software</p>
-        <p className="instruction">Describe the problem, feature, or change you want Intent2Deploy to handle.</p>
-      </div>
+    <div>
+      <h1 className="page-title">New Workflow</h1>
+      <p className="page-subtitle">Describe the engineering task you want to accomplish.</p>
 
-      <div className="entry-box">
-        <label className="entry-prompt-label" htmlFor="intent-textarea">
-          What do you want to build or fix?
-        </label>
+      <div className="card" style={{ maxWidth: 640 }}>
+        <label htmlFor="intent-textarea">What do you want to build or fix?</label>
         <textarea
           id="intent-textarea"
-          className="entry-textarea"
           value={intent}
           onChange={(e) => setIntent(e.target.value)}
           placeholder="Describe what you want to build, fix, refactor, or improve..."
           rows={5}
         />
 
-        <div className="entry-repo-row">
-          {repoSource && !pickerOpen ? (
-            <div className="entry-repo-chip">
-              <div className="col">
-                <div className="k">Repository</div>
-                <div className="v">{repoLabel(repoSource, repoValue)}</div>
-              </div>
-              <div className="col">
-                <div className="k">Source</div>
-                <div className="v">{repoSource === "github" ? "GitHub" : "Local"}</div>
-              </div>
-              <div className="col">
-                <div className="k">Status</div>
-                <div className="v">Ready to index</div>
-              </div>
-              <button type="button" onClick={openPicker}>
-                Change Repository
-              </button>
-            </div>
-          ) : !pickerOpen ? (
-            <button type="button" className="entry-add-repo-btn" onClick={openPicker}>
-              + Add Repository
-            </button>
-          ) : (
-            <span />
-          )}
+        <hr className="divider" style={{ margin: "18px 0 14px" }} />
+        <div className="card-title">Repository</div>
 
-          {!pickerOpen && (
-            <button type="button" className="entry-cta" disabled={!canStart} onClick={() => startWorkflow()}>
-              Start Workflow →
+        {repoSource && !pickerOpen ? (
+          <div className="repo-summary">
+            <div className="col">
+              <div className="k">Repository</div>
+              <div className="v">{repoLabel(repoSource, repoValue)}</div>
+            </div>
+            <div className="col">
+              <div className="k">Source</div>
+              <div className="v">{repoSource === "github" ? "GitHub" : "Local"}</div>
+            </div>
+            <div className="col">
+              <div className="k">Status</div>
+              <div className="v">Ready to index</div>
+            </div>
+            <button type="button" className="btn" onClick={openPicker}>
+              Change
             </button>
-          )}
-        </div>
+          </div>
+        ) : !pickerOpen ? (
+          <div className="repo-field-row">
+            <p style={{ fontSize: 12.5, color: "var(--text-faint)", margin: 0 }}>No repository configured yet.</p>
+            <button type="button" className="btn" onClick={openPicker}>
+              Configure Repository
+            </button>
+          </div>
+        ) : null}
 
         {pickerOpen && (
-          <div className="entry-picker">
-            <div className="entry-picker-title">Repository Source</div>
-            <div className="entry-picker-choice" role="radiogroup" aria-label="Repository source">
-              <label>
-                <input type="radio" name="repo-source-mode" checked={pickerMode === "local"} onChange={() => setPickerMode("local")} />
-                Local Repository
-              </label>
-              <label>
-                <input type="radio" name="repo-source-mode" checked={pickerMode === "github"} onChange={() => setPickerMode("github")} />
-                GitHub Repository
-              </label>
-            </div>
-
-            {pickerMode === "local" ? (
-              <>
-                <label htmlFor="repo-local-input">Local path</label>
-                <input
-                  id="repo-local-input"
-                  value={pickerInput}
-                  onChange={(e) => setPickerInput(e.target.value)}
-                  placeholder="/path/to/repository"
-                  autoFocus
-                />
-              </>
-            ) : (
-              <>
-                <label htmlFor="repo-github-input">GitHub repository URL</label>
-                <input
-                  id="repo-github-input"
-                  value={pickerInput}
-                  onChange={(e) => setPickerInput(e.target.value)}
-                  placeholder="https://github.com/owner/repository"
-                  autoFocus
-                />
-              </>
-            )}
-            {pickerError && (
-              <div className="entry-picker-error" role="alert">
-                {pickerError}
+          <div style={{ marginTop: repoSource ? 0 : 8 }}>
+            <div className="repo-field-row">
+              <div className="field field-source">
+                <label htmlFor="repo-source-select">Repository source</label>
+                <select id="repo-source-select" value={pickerMode} onChange={(e) => setPickerMode(e.target.value as RepoSource)}>
+                  <option value="local">Local Repository</option>
+                  <option value="github">GitHub</option>
+                </select>
               </div>
-            )}
+              <div className="field">
+                <label htmlFor="repo-value-input">{pickerMode === "local" ? "Local path" : "GitHub repository URL"}</label>
+                <input
+                  id="repo-value-input"
+                  value={pickerInput}
+                  onChange={(e) => setPickerInput(e.target.value)}
+                  placeholder={pickerMode === "local" ? "/path/to/repository" : "https://github.com/owner/repository"}
+                  autoFocus
+                />
+              </div>
+            </div>
             <div className="btn-row">
+              <button type="button" className="btn btn-primary" onClick={confirmPicker}>
+                Set Repository
+              </button>
               <button type="button" className="btn" onClick={() => setPickerOpen(false)}>
                 Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={confirmPicker}>
-                Add Repository
               </button>
             </div>
           </div>
         )}
+        {pickerError && (
+          <div className="entry-picker-error" role="alert" style={{ fontSize: 12, color: "var(--danger)", marginTop: 6 }}>
+            {pickerError}
+          </div>
+        )}
+
+        {!pickerOpen && (
+          <div className="btn-row">
+            <button type="button" className="btn btn-primary" disabled={!canStart} onClick={() => startWorkflow()}>
+              Start Workflow
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="entry-examples">
-        <div className="label">Try an example:</div>
-        <div className="entry-example-row">
-          {EXAMPLE_PROMPTS.map((p, i) => (
-            <button key={i} type="button" className="entry-example" onClick={() => setIntent(p)}>
-              {p.length > 52 ? `${p.slice(0, 52)}…` : p}
+      <div style={{ maxWidth: 640, marginTop: 28 }}>
+        <div className="card-title">Examples</div>
+        <div className="example-list">
+          {EXAMPLES.map((ex, i) => (
+            <button
+              key={i}
+              type="button"
+              className="example-row"
+              onClick={() =>
+                ex.demo ? startWorkflow(ex.intent, "local", "../demo-repository") : setIntent(ex.intent)
+              }
+            >
+              <span>
+                <span className="ex-title">{ex.title}</span>
+                <div className="ex-desc">{ex.description}</div>
+              </span>
+              <span className="ex-tag">{ex.demo ? "Uses bundled demo repository" : "Fill prompt"}</span>
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="entry-demo">
-        <button
-          type="button"
-          className="entry-demo-link"
-          onClick={() => startWorkflow(PAYMENT_DEMO_INTENT, "local", "../demo-repository")}
-        >
-          Try the Payment Reliability Demo →
-        </button>
       </div>
     </div>
   );

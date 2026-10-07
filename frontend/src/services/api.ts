@@ -1,5 +1,6 @@
 import type {
   AuditEventItem,
+  ExperimentComparison,
   FinalReport,
   GeneratedTestItem,
   GuardrailCatalogItem,
@@ -102,6 +103,7 @@ export const api = {
   getEvidence: (id: string) => request<{ evidence: RetrievalEvidenceItem[] }>(`/api/workflows/${id}/evidence`),
   getReport: (id: string) => request<FinalReport>(`/api/workflows/${id}/report`),
   getReportMarkdownUrl: (id: string) => `${BASE_URL}/api/workflows/${id}/report.md`,
+  getReportJsonUrl: (id: string) => `${BASE_URL}/api/workflows/${id}/report.json`,
 
   searchRepository: (repository_id: string, query: string, top_k = 8) =>
     request<{ results: RetrievalEvidenceItem[] }>("/api/repository/search", {
@@ -115,6 +117,8 @@ export const api = {
     }),
 
   getEvaluationResults: () => request<{ runs: unknown[] }>("/api/evaluation/results"),
+  getBaselineResults: () => request<{ runs: unknown[] }>("/api/evaluation/baseline-results"),
+  getEvaluationComparison: () => request<ExperimentComparison>("/api/evaluation/comparison"),
 
   getPipeline: (workflowId: string) =>
     request<{ workflow_id: string; stages: PipelineStage[] }>(`/api/workflows/${workflowId}/pipeline`),

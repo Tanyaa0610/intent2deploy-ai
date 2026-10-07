@@ -15,7 +15,7 @@ def test_semantic_search_finds_payment_files_for_payment_query(demo_repo_copy):
     results = retrieve("test_collection_payment_search", "Where is payment processing implemented?", top_k=8)
     files = {r.file for r in results}
 
-    assert "src/payments/service.py" in files or "src/payments/provider_client.py" in files
+    assert "src/shopflow/services/payment_service.py" in files or "src/shopflow/integrations/payment_provider.py" in files
     # Different query -> different top files (proves this isn't hardcoded).
     auth_results = retrieve("test_collection_payment_search", "user authentication and login", top_k=8)
     assert {r.file for r in auth_results} != files

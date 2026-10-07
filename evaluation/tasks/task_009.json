@@ -5,7 +5,7 @@
   "intent": "Refactor the password hashing logic in the authentication service into a clearer structure without changing existing behavior.",
   "repository": "demo-repository",
   "expected_files": [
-    "src/auth/service.py"
+    "src/shopflow/services/auth_service.py"
   ],
   "acceptance_criteria": [
     "All existing authentication tests continue to pass unchanged",

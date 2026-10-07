@@ -19,7 +19,7 @@ CATEGORY_METADATA: dict[str, dict] = {
             "existing authentication regression tests continue to pass",
         ],
         "risks": ["Authentication regression", "Reset-token security (expiry/single-use) issues"],
-        "primary_file": "src/auth/service.py",
+        "primary_file": "src/shopflow/services/auth_service.py",
     },
     "bug_fix_orders": {
         "summary": "Fix the null-reference bug in the order service's total calculation.",
@@ -32,7 +32,7 @@ CATEGORY_METADATA: dict[str, dict] = {
             "edge case: unknown order id raises ValueError instead of AttributeError",
         ],
         "risks": ["Callers depending on the previous crash behavior (unlikely) would need to adjust"],
-        "primary_file": "src/orders/service.py",
+        "primary_file": "src/shopflow/services/order_service.py",
     },
     "input_validation": {
         "summary": "Add input validation to the registration endpoint.",
@@ -47,7 +47,7 @@ CATEGORY_METADATA: dict[str, dict] = {
             "regression: valid registration still succeeds",
         ],
         "risks": ["Clients previously able to submit invalid data will now receive 400 responses"],
-        "primary_file": "src/api/app.py",
+        "primary_file": "src/shopflow/api/auth.py",
     },
     "auth_token_expiry": {
         "summary": "Add session-token expiry to the authentication service.",
@@ -60,7 +60,7 @@ CATEGORY_METADATA: dict[str, dict] = {
             "regression: newly issued token remains valid",
         ],
         "risks": ["Long-lived sessions will require re-authentication after the TTL"],
-        "primary_file": "src/auth/service.py",
+        "primary_file": "src/shopflow/services/auth_service.py",
     },
     "payment_timeout_reliability": {
         "summary": (
@@ -80,11 +80,11 @@ CATEGORY_METADATA: dict[str, dict] = {
         ],
         "risks": [
             "Duplicate charges on payment-provider timeout are a direct financial and trust risk",
-            "Idempotency cache is in-memory (lost on process restart), matching this demo repository's existing in-memory persistence model",
+            "Idempotency lookup is keyed on (order_id, idempotency_key) within this SQLite database, matching this demo repository's existing persistence model (unlike an in-memory cache, this survives a process restart)",
             "Retry storms from a flaky provider could still exhaust request capacity without additional backoff (out of scope for this change)",
             "Rollback strategy: this change is additive (a new idempotency_key parameter with a safe default of None) and requires no data migration, so it can be reverted by rolling back the commit with no data-compatibility impact",
         ],
-        "primary_file": "src/payments/service.py",
+        "primary_file": "src/shopflow/services/payment_service.py",
     },
     "generic": {
         "summary": "Analyze the requested change against retrieved repository evidence.",
