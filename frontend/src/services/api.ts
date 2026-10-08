@@ -16,6 +16,7 @@ import type {
   RetrievalEvidenceItem,
   ValidationResultItem,
   Workflow,
+  WorkflowEvaluation,
 } from "../types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -119,6 +120,7 @@ export const api = {
   getEvaluationResults: () => request<{ runs: unknown[] }>("/api/evaluation/results"),
   getBaselineResults: () => request<{ runs: unknown[] }>("/api/evaluation/baseline-results"),
   getEvaluationComparison: () => request<ExperimentComparison>("/api/evaluation/comparison"),
+  getWorkflowEvaluation: (id: string) => request<WorkflowEvaluation>(`/api/workflows/${id}/evaluation`),
 
   getPipeline: (workflowId: string) =>
     request<{ workflow_id: string; stages: PipelineStage[] }>(`/api/workflows/${workflowId}/pipeline`),

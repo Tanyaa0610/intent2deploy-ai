@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../services/api";
 import type {
@@ -19,6 +18,7 @@ import { Timeline } from "../components/Timeline";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { DiffViewer } from "../components/DiffViewer";
 import { ApprovalControls } from "../components/ApprovalControls";
+import { Tbl, Expand } from "../components/DataDisplay";
 import { PipelineStrip } from "../components/PipelineStrip";
 
 type TabKey = "plan" | "repo" | "changes" | "tests" | "ci" | "report";
@@ -560,36 +560,6 @@ function CITab({
   );
 }
 
-function Tbl({ headers, rows }: { headers: string[]; rows: (string | number | ReactNode)[][] }) {
-  if (rows.length === 0) {
-    return <p style={{ fontSize: 13, color: "var(--text-faint)" }}>Not recorded.</p>;
-  }
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table>
-        <thead>
-          <tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              {row.map((cell, j) => <td key={j} style={{ fontSize: 12.5 }}>{cell === "" || cell === null || cell === undefined ? "—" : cell}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Expand({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
-  return (
-    <details style={{ marginTop: 14 }} open={defaultOpen}>
-      <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 13.5, padding: "4px 0" }}>{title}</summary>
-      <div style={{ marginTop: 8 }}>{children}</div>
-    </details>
-  );
-}
 
 function ReportTab({ id }: { id: string }) {
   const [report, setReport] = useState<FinalReport | null>(null);
@@ -699,8 +669,8 @@ function ReportTab({ id }: { id: string }) {
       <Expand title={`6. Repository RAG & Retrieved Evidence (${rag?.evidence.length ?? report.evidence.length})`}>
         <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Query (developer intent): {rag?.query ?? report.intent}</p>
         <Tbl
-          headers={["File", "Lines", "Score", "Method", "Chunk type", "Reason"]}
-          rows={(rag?.evidence ?? []).map((e) => [e.file, `${e.start_line}-${e.end_line}`, e.score.toFixed(2), e.retrieval_method, e.chunk_type, e.reason])}
+          headers={["File", "Method", "Chunk type", "Reason"]}
+          rows={(rag?.evidence ?? []).map((e) => [e.file, e.retrieval_method, e.chunk_type, e.reason])}
         />
       </Expand>
 

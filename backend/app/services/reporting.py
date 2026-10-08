@@ -94,7 +94,7 @@ def _extract_test_function_names(content: str) -> list[str]:
     return re.findall(r"^\s*def (test_\w+)\(", content, re.M)
 
 
-def build_report(session: Session, workflow_id: str) -> dict:
+def build_report(session: Session, workflow_id: str, include_executive_summary: bool = True) -> dict:
     workflow = get_workflow(session, workflow_id)
     repository = session.get(Repository, workflow.repository_id)
     plan = session.exec(select(Plan).where(Plan.workflow_id == workflow_id).order_by(Plan.created_at.desc())).first()
@@ -197,6 +197,7 @@ def build_report(session: Session, workflow_id: str) -> dict:
         if readiness
         else None,
         "evidence_classification": _classify_evidence(plan, evidence, invented_files_removed),
+        "invented_files_removed": invented_files_removed,
         "timing_ms": {
             "indexing": workflow.indexing_ms,
             "retrieval": workflow.retrieval_ms,
@@ -208,23 +209,30 @@ def build_report(session: Session, workflow_id: str) -> dict:
         },
     }
 
-    try:
-        provider = get_provider()
-        prompt = load_prompt("final_report_generation")
-        rendered = prompt.render(workflow_trace_json=json.dumps(trace)[:8000])
-        from pydantic import BaseModel
+    # The executive summary is the one non-deterministic (LLM-backed) part
+    # of this trace. Callers that only need deterministic, persisted
+    # evidence (e.g. the workflow evaluation endpoint) can skip it via
+    # include_executive_summary=False to avoid an LLM round-trip on every
+    # request — `is_mock` itself is free (provider construction only).
+    provider = get_provider()
+    is_mock = provider.is_mock
+    if include_executive_summary:
+        try:
+            prompt = load_prompt("final_report_generation")
+            rendered = prompt.render(workflow_trace_json=json.dumps(trace)[:8000])
+            from pydantic import BaseModel
 
-        class _Summary(BaseModel):
-            executive_summary: str
+            class _Summary(BaseModel):
+                executive_summary: str
 
-        result = structured_call(
-            provider, "final_report_generation", rendered, {"workflow_trace": trace}, schema=_Summary
-        )
-        trace["executive_summary"] = result.parsed.executive_summary
-        is_mock = provider.is_mock
-    except Exception as exc:  # noqa: BLE001 - report generation must never crash on summary failure
-        trace["executive_summary"] = f"(executive summary unavailable: {exc})"
-        is_mock = None
+            result = structured_call(
+                provider, "final_report_generation", rendered, {"workflow_trace": trace}, schema=_Summary
+            )
+            trace["executive_summary"] = result.parsed.executive_summary
+        except Exception as exc:  # noqa: BLE001 - report generation must never crash on summary failure
+            trace["executive_summary"] = f"(executive summary unavailable: {exc})"
+    else:
+        trace["executive_summary"] = None
 
     # =====================================================================
     # Expanded, auditable sections — all derived from the rows queried

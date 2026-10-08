@@ -477,6 +477,106 @@ export interface FinalReport {
 // Shapes match scripts/compare_evaluation_runs.py's JSON output exactly;
 // see docs/EXPERIMENTAL_EVALUATION.md for the methodology.
 
+// --- Workflow-specific evaluation (faculty framework, 7 fixed categories) -
+// Shape matches backend/app/services/workflow_evaluation.py exactly; see
+// GET /api/workflows/{id}/evaluation. Distinct from the multi-task
+// baseline-vs-Intent2Deploy benchmark types below.
+
+export type EvaluationCategoryKey =
+  | "explanation"
+  | "code_retrieval"
+  | "dependency_understanding"
+  | "bug_analysis"
+  | "code_generation"
+  | "refactoring"
+  | "rag_based_question";
+
+export interface EvaluationCriterion {
+  label: string;
+  result: string; // "met" | "not met" | "N/A" | "XX% met"
+  weight: number;
+}
+
+export interface EvaluationCategoryResult {
+  status: "evaluated" | "not_applicable" | "not_evaluated";
+  score: number | null;
+  is_partial: boolean;
+  criteria: EvaluationCriterion[];
+  metrics: Record<string, string | number>;
+  independent_checks: Record<string, string>;
+  evidence: Record<string, unknown>;
+  note: string;
+}
+
+export interface MetricStatusEntry {
+  metric: string;
+  status: "measured" | "evidence-based" | "ground_truth_dependent" | "unavailable";
+  value: string | number;
+  evidence: string;
+}
+
+export interface EvaluationMetricsSummary {
+  measured_count: number;
+  evidence_based_count: number;
+  ground_truth_dependent_count: number;
+  unavailable_count: number;
+  measured: string[];
+  ground_truth_dependent: string[];
+  unavailable: string[];
+}
+
+export interface GuardrailMetrics {
+  total: number;
+  passed: number;
+  warnings: number;
+  blocked: number;
+  failed: number;
+  not_applicable: number;
+  approval_required: number;
+  by_category: Record<string, number>;
+  regression_gate: string;
+  note?: string;
+}
+
+export interface TokenUsage {
+  prompt_tokens: string;
+  completion_tokens: string;
+  total_tokens: string;
+  note: string;
+  estimated_proxy?: {
+    llm_calls: number;
+    estimated_tokens: number;
+    estimated_cost_usd: number;
+    note: string;
+  };
+}
+
+export interface WorkflowEvaluation {
+  workflow_id: string;
+  status: string;
+  available: boolean;
+  evaluated_at: string | null;
+  message: string | null;
+  overall_score: number | null;
+  overall_score_message?: string | null;
+  evaluated_categories: number;
+  total_categories?: number;
+  categories: Partial<Record<EvaluationCategoryKey, EvaluationCategoryResult>>;
+  evidence: {
+    developer_intent?: string;
+    repository?: string;
+    final_status?: string;
+    final_validation?: string | null;
+    total_duration_ms?: number | null;
+  };
+  measurement_limitations: string[];
+  token_usage: TokenUsage;
+  latency_breakdown: Record<string, number>;
+  guardrail_metrics: GuardrailMetrics;
+  metric_status: MetricStatusEntry[];
+  metrics_summary: EvaluationMetricsSummary;
+}
+
 export interface ComparisonMetricRow {
   metric: string;
   field: string;

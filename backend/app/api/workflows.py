@@ -318,6 +318,17 @@ def get_report(workflow_id: str, session: Session = Depends(get_session)) -> dic
     return _wrap(build_report, session, workflow_id)
 
 
+@router.get("/{workflow_id}/evaluation")
+def get_workflow_evaluation(workflow_id: str, session: Session = Depends(get_session)) -> dict:
+    """Faculty-framework evaluation (7 fixed categories) for ONE workflow,
+    derived deterministically from its persisted evidence — see
+    app.services.workflow_evaluation. Distinct from the multi-task
+    baseline-vs-Intent2Deploy benchmark served under /api/evaluation."""
+    from app.services.workflow_evaluation import build_workflow_evaluation
+
+    return _wrap(build_workflow_evaluation, session, workflow_id)
+
+
 @router.get("/{workflow_id}/report.json")
 def get_report_json_download(workflow_id: str, session: Session = Depends(get_session)):
     """Same trace as GET /report (single source of truth — see
