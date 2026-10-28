@@ -57,18 +57,33 @@ def count_patch_lines(patch: str) -> int:
 _HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
-def apply_patch(old_content: str, patch: str) -> str:
+class PatchConflictError(PatchApplyError):
+    """The file no longer matches the content the patch was generated from."""
+
+
+def _same_line(a: str, b: str) -> bool:
+    return a.rstrip("\r\n") == b.rstrip("\r\n")
+
+
+def apply_patch(old_content: str, patch: str, strict: bool = False) -> str:
     """Apply a unified diff (as produced by `make_unified_diff`) to
     `old_content` and return the resulting content.
 
     Handles the pure-addition case (`/dev/null` source, i.e. new file)
     by returning the added lines directly.
+
+    With `strict=True`, every context and removed line must match the
+    current content exactly (and a new-file patch requires the file to be
+    absent or empty), raising PatchConflictError otherwise. Used when
+    changes generated earlier are applied on top of a newer `main`.
     """
     lines = patch.splitlines()
     if not lines:
         return old_content
 
     if any(line.startswith("--- /dev/null") for line in lines):
+        if strict and old_content.strip():
+            raise PatchConflictError("the file already exists with other content")
         # New file: every hunk is pure additions.
         added = [line[1:] for line in lines if line.startswith("+") and not line.startswith("+++")]
         return "\n".join(added) + ("\n" if added else "")
@@ -94,9 +109,13 @@ def apply_patch(old_content: str, patch: str) -> str:
         while i < n and not lines[i].startswith("@@"):
             line = lines[i]
             if line.startswith(" "):
+                if strict and (src_idx >= len(src_lines) or not _same_line(src_lines[src_idx], line[1:])):
+                    raise PatchConflictError(f"line {src_idx + 1} no longer matches")
                 result.append(src_lines[src_idx] if src_idx < len(src_lines) else line[1:] + "\n")
                 src_idx += 1
             elif line.startswith("-") and not line.startswith("---"):
+                if strict and (src_idx >= len(src_lines) or not _same_line(src_lines[src_idx], line[1:])):
+                    raise PatchConflictError(f"line {src_idx + 1} to be changed has been modified")
                 src_idx += 1
             elif line.startswith("+") and not line.startswith("+++"):
                 text = line[1:]

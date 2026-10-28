@@ -25,6 +25,7 @@ class IndexStats:
     chunk_count: int
     skipped_files: list[str]
     indexed_files: list[str]
+    source_file_count: int = 0
 
 
 def _looks_binary(sample: bytes) -> bool:
@@ -71,7 +72,7 @@ def index_repository(repo_root: Path, collection_name: str) -> IndexStats:
     total_chunks = 0
 
     for path in files:
-        rel_path = str(path.relative_to(repo_root))
+        rel_path = path.relative_to(repo_root).as_posix()
         try:
             with open(path, "rb") as fh:
                 sample = fh.read(TEXT_PROBE_BYTES)
@@ -111,9 +112,12 @@ def index_repository(repo_root: Path, collection_name: str) -> IndexStats:
         for i in range(0, len(documents), batch):
             store.add_documents(documents[i : i + batch], ids=ids[i : i + batch])
 
+    from app.services.greenfield.service import is_source_file
+
     return IndexStats(
         file_count=len(indexed),
         chunk_count=total_chunks,
         skipped_files=skipped,
         indexed_files=indexed,
+        source_file_count=sum(1 for f in indexed if is_source_file(f)),
     )

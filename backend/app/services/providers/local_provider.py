@@ -37,6 +37,22 @@ class LocalProvider(LLMProvider):
         )
 
     # ------------------------------------------------------------------
+    # Greenfield (empty repository): built-in, tested project templates.
+    # The design names the template used — see app/services/greenfield/templates.py.
+    def _handle_project_design(self, context: dict) -> str:
+        from app.services.greenfield import templates
+
+        return json.dumps(templates.design(context["intent"], context.get("port", 8010), context.get("preview", False)))
+
+    def _handle_project_generation(self, context: dict) -> str:
+        from app.services.greenfield import templates
+
+        design = context["design"]
+        wanted = {f["path"] for f in design.get("files", [])}
+        files = [f for f in templates.files(context["intent"], design) if f["path"] in wanted]
+        return json.dumps({"files": files})
+
+    # ------------------------------------------------------------------
     def _handle_requirement_analysis(self, context: dict) -> str:
         intent = context["intent"]
         terms = extract_key_terms(intent)
@@ -143,10 +159,10 @@ class LocalProvider(LLMProvider):
             }
             for c in mock_changes
         ]
-        if not changes:
+        if not changes and file_contents:
             changes = [
                 {
-                    "file": next(iter(file_contents), "UNKNOWN"),
+                    "file": next(iter(file_contents)),
                     "operation": "modify",
                     "reason": (
                         "Mock mode (LLM_MODE=mock) has no grounded code-generation strategy "

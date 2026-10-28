@@ -1,19 +1,33 @@
 import type {
+  AddOnItem,
+  AlertCounts,
+  AlertItem,
   AuditEventItem,
+  DashboardAttention,
+  DashboardSummary,
   ExperimentComparison,
   FinalReport,
   GeneratedTestItem,
   GuardrailCatalogItem,
   GuardrailCheckItem,
   GuardrailSummary,
+  CheckDetails,
+  PreviewInfo,
   GuardrailTimelineItem,
+  ManagedRepository,
   PipelineStage,
   PlanDetail,
+  PlanStepUpdate,
   Project,
   ProposedChangeItem,
   RepairAttemptItem,
+  RepoFile,
+  RepoInsights,
+  RepoTextMatch,
+  RepoTreeEntry,
   Repository,
   RetrievalEvidenceItem,
+  RiskItem,
   ValidationResultItem,
   Workflow,
   WorkflowEvaluation,
@@ -40,6 +54,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  getDashboardSummary: () => request<DashboardSummary>("/api/dashboard/summary"),
+  getDashboardAttention: () => request<DashboardAttention>("/api/dashboard/attention"),
+
   health: () => request<{ status: string; llm_provider: string; llm_mode: string; is_mock: boolean }>("/api/health"),
 
   createProject: (name: string) => request<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
@@ -52,6 +69,40 @@ export const api = {
   listRepositories: (project_id?: string) =>
     request<Repository[]>(`/api/repositories${project_id ? `?project_id=${project_id}` : ""}`),
 
+  // Repository Manager
+  getRepoRoots: () => request<{ roots: string[]; server_token_configured: boolean }>("/api/repositories/roots"),
+  listManagedRepositories: () => request<ManagedRepository[]>("/api/repositories/managed"),
+  getManagedRepository: (id: string) => request<ManagedRepository>(`/api/repositories/${id}/details`),
+  createLocalRepository: (payload: { path: string; name?: string; git_init: boolean; readme: boolean; index: boolean }) =>
+    request<ManagedRepository>("/api/repositories/create", { method: "POST", body: JSON.stringify(payload) }),
+  connectLocalRepository: (payload: { path: string; name?: string; index: boolean }) =>
+    request<ManagedRepository>("/api/repositories/connect-local", { method: "POST", body: JSON.stringify(payload) }),
+  connectGitHubRepository: (payload: {
+    url: string;
+    branch?: string;
+    private: boolean;
+    token?: string;
+    use_server_token?: boolean;
+    index: boolean;
+  }) => request<ManagedRepository>("/api/repositories/connect-github", { method: "POST", body: JSON.stringify(payload) }),
+  reindexRepository: (id: string) => request<ManagedRepository>(`/api/repositories/${id}/reindex`, { method: "POST" }),
+  syncRepository: (id: string, payload: { token?: string; use_server_token?: boolean; reindex?: boolean } = {}) =>
+    request<ManagedRepository>(`/api/repositories/${id}/sync`, { method: "POST", body: JSON.stringify(payload) }),
+  disconnectRepository: (id: string) =>
+    request<{ status: string; removed_clone: boolean }>(`/api/repositories/${id}`, { method: "DELETE" }),
+  getRepoTree: (id: string, path = "") =>
+    request<{ path: string; entries: RepoTreeEntry[] }>(`/api/repositories/${id}/tree?path=${encodeURIComponent(path)}`),
+  getWorkflowFile: (workflowId: string, path: string) =>
+    request<RepoFile>(`/api/workflows/${workflowId}/file?path=${encodeURIComponent(path)}`),
+  getRepoFile: (id: string, path: string) =>
+    request<RepoFile>(`/api/repositories/${id}/file?path=${encodeURIComponent(path)}`),
+  grepRepository: (id: string, q: string, caseSensitive = false) =>
+    request<{ results: RepoTextMatch[]; truncated: boolean; files_scanned: number }>(
+      `/api/repositories/${id}/grep?q=${encodeURIComponent(q)}&case_sensitive=${caseSensitive}`
+    ),
+  getRepoInsights: (id: string) => request<RepoInsights>(`/api/repositories/${id}/insights`),
+  getRepoWorkflows: (id: string) => request<Workflow[]>(`/api/repositories/${id}/workflows`),
+
   createWorkflow: (payload: {
     project_id: string;
     repository_id: string;
@@ -63,10 +114,37 @@ export const api = {
   listWorkflows: (project_id?: string) =>
     request<Workflow[]>(`/api/workflows${project_id ? `?project_id=${project_id}` : ""}`),
   getWorkflow: (id: string) => request<Workflow>(`/api/workflows/${id}`),
+  deleteWorkflow: (id: string) =>
+    request<{ deleted: string; records_removed: number; workspace_removed: boolean }>(`/api/workflows/${id}`, { method: "DELETE" }),
 
+  resumeWorkflow: (id: string) => request<Workflow>(`/api/workflows/${id}/resume`, { method: "POST" }),
+  // Report a problem found on staging: starts a follow-up workflow that fixes it.
+  // If the code on staging already does what is asked, the answer says so (with evidence) instead.
+  // `addons`: built-in upgrades to apply (ids from listAddons) — they work without an AI model.
+  reviseWorkflow: (id: string, problem: string, screenshots: string[] = [], force = false, addons: string[] = []) =>
+    request<
+      | { already_satisfied: false; workflow: Workflow }
+      | {
+          already_satisfied: true;
+          message: string;
+          findings: { capability: string; present: boolean; evidence: string[] }[];
+          upgrades: AddOnItem[];
+        }
+    >(`/api/workflows/${id}/revise`, { method: "POST", body: JSON.stringify({ problem, screenshots, force, addons }) }),
+  listAddons: (id: string) => request<{ addons: AddOnItem[] }>(`/api/workflows/${id}/addons`),
+  attachmentUrl: (id: string, name: string) => `${BASE_URL}/api/workflows/${id}/attachments/${encodeURIComponent(name)}`,
+  listRevisions: (id: string) => request<Workflow[]>(`/api/workflows/${id}/revisions`),
+  revisionCheck: (id: string) =>
+    request<{
+      checked: boolean;
+      already_satisfied: boolean;
+      findings: { capability: string; present: boolean; evidence: string[] }[];
+    }>(`/api/workflows/${id}/revision-check`),
   runIndexing: (id: string) => request<Workflow>(`/api/workflows/${id}/index`, { method: "POST" }),
   runPlanning: (id: string) => request<Workflow>(`/api/workflows/${id}/plan`, { method: "POST" }),
   getPlan: (id: string) => request<PlanDetail>(`/api/workflows/${id}/plan`),
+  updatePlan: (id: string, payload: Partial<{ summary: string; assumptions: string[]; acceptance_criteria: string[]; steps: PlanStepUpdate[]; files_likely_to_change: string[]; test_strategy: string[] }>) =>
+    request<PlanDetail>(`/api/workflows/${id}/plan`, { method: "PATCH", body: JSON.stringify(payload) }),
   approvePlan: (id: string, approved: boolean, comment = "") =>
     request<Workflow>(`/api/workflows/${id}/approve-plan`, { method: "POST", body: JSON.stringify({ approved, comment }) }),
 
@@ -90,15 +168,106 @@ export const api = {
     request<Workflow>(`/api/workflows/${id}/commit`, { method: "POST", body: JSON.stringify({ approved, comment }) }),
   completeWorkflow: (id: string) => request<Workflow>(`/api/workflows/${id}/complete`, { method: "POST" }),
 
-  pushBranch: (id: string, approved: boolean) =>
-    request<{ status: string; branch?: string }>(`/api/workflows/${id}/github/push`, { method: "POST", body: JSON.stringify({ approved }) }),
-  createPR: (id: string, approved: boolean, title = "", body = "") =>
+  // Feature-branch delivery: publish branch + PR to main, status, update, gated merge.
+  publishPR: (id: string, token = "") =>
+    request<{ number: number; url: string; base: string; head: string; repository: string; initialized_base: boolean }>(
+      `/api/workflows/${id}/github/publish`,
+      { method: "POST", body: JSON.stringify({ token }) }
+    ),
+  getPRStatus: (id: string, token = "") =>
+    request<{
+      published: boolean;
+      repository: string;
+      base: string;
+      head: string;
+      number?: number;
+      url?: string;
+      title?: string;
+      state?: string;
+      merge_sha?: string;
+      head_sha?: string;
+      mergeable_state?: string;
+      checks?: { id: number; name: string; event: string; status: string; conclusion: string; url: string }[];
+      checks_summary?: { total: number; pending: number; failed: number; passed: number };
+      local_validation_passed?: boolean;
+      viewer?: string;
+      viewer_can_merge?: boolean;
+      blockers?: string[];
+      needs_token?: boolean;
+      can_merge?: boolean;
+    }>(`/api/workflows/${id}/github/pr/status`, { method: "POST", body: JSON.stringify({ token }) }),
+  getCheckDetails: (id: string, checkId: number, token = "") =>
+    request<CheckDetails>(`/api/workflows/${id}/github/checks/${checkId}`, { method: "POST", body: JSON.stringify({ token }) }),
+  // Staging: preview the integration branch, then release it to main.
+  previewStart: (id: string, token = "") =>
+    request<PreviewInfo>(`/api/workflows/${id}/github/preview/start`, { method: "POST", body: JSON.stringify({ token }) }),
+  previewInfo: (id: string) => request<PreviewInfo>(`/api/workflows/${id}/github/preview`),
+  previewStop: (id: string) => request<PreviewInfo>(`/api/workflows/${id}/github/preview/stop`, { method: "POST" }),
+  previewRollback: (id: string) => request<PreviewInfo>(`/api/workflows/${id}/github/preview/rollback`, { method: "POST" }),
+  // Alerts and live deployment monitoring
+  listAlerts: (openOnly = false) =>
+    request<{ alerts: AlertItem[]; open: AlertCounts }>(`/api/alerts?open_only=${openOnly}`),
+  ackAlert: (alertId: string) => request<{ open: AlertCounts }>(`/api/alerts/${alertId}/ack`, { method: "POST" }),
+  ackAllAlerts: () => request<{ acknowledged: number; open: AlertCounts }>("/api/alerts/ack-all", { method: "POST" }),
+  listDeployments: () => request<{ deployments: (PreviewInfo & { key: string })[] }>("/api/deployments"),
+  releaseOpen: (id: string, token = "") =>
+    request<{ number: number; url: string; base: string; head: string; commits: string[] }>(
+      `/api/workflows/${id}/github/release/open`,
+      { method: "POST", body: JSON.stringify({ token }) }
+    ),
+  releaseStatus: (id: string, token = "") =>
+    request<Awaited<ReturnType<typeof api.getPRStatus>>>(`/api/workflows/${id}/github/release/status`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  releaseMerge: (id: string, approved: boolean, verified_on_staging: boolean, comment = "", token = "") =>
+    request<{ status: string; number: number; merge_sha: string; url: string }>(`/api/workflows/${id}/github/release/merge`, {
+      method: "POST",
+      body: JSON.stringify({ approved, verified_on_staging, comment, token }),
+    }),
+  updatePRBranch: (id: string, token = "") =>
+    request<{ status: string; detail: string }>(`/api/workflows/${id}/github/update-branch`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  mergePR: (id: string, approved: boolean, comment = "", token = "") =>
+    request<{ status: string; number: number; merge_sha: string; base: string; url: string }>(
+      `/api/workflows/${id}/github/merge`,
+      { method: "POST", body: JSON.stringify({ approved, comment, token }) }
+    ),
+  getGitHubTarget: (id: string) =>
+    request<{ configured: boolean; repository: string | null; url: string | null; source: string | null; server_token: boolean; branch: string }>(
+      `/api/workflows/${id}/github/target`
+    ),
+  pushBranch: (id: string, approved: boolean, token = "") =>
+    request<{ status: string; branch?: string; repository?: string; url?: string }>(`/api/workflows/${id}/github/push`, {
+      method: "POST",
+      body: JSON.stringify({ approved, token }),
+    }),
+  createPR: (id: string, approved: boolean, title = "", body = "", token = "") =>
     request<{ status: string; url?: string; number?: number }>(`/api/workflows/${id}/github/pr`, {
       method: "POST",
-      body: JSON.stringify({ approved, title, body }),
+      body: JSON.stringify({ approved, title, body, token }),
     }),
-  getCIStatus: (id: string) =>
-    request<{ provider: string; status: string; detail: string; url: string }>(`/api/workflows/${id}/github/ci`, { method: "POST" }),
+  getCIStatus: (id: string, token = "") =>
+    request<{ provider: string; status: string; detail: string; url: string; repository?: string | null }>(
+      `/api/workflows/${id}/github/ci`,
+      { method: "POST", body: JSON.stringify({ token }) }
+    ),
+
+  // What CI runs for this project: its GitHub Actions workflows, jobs and steps.
+  getCIWorkflows: (id: string) =>
+    request<{
+      workflows: {
+        file: string;
+        name: string;
+        triggers: string[];
+        jobs: { id: string; name: string; runs_on: string; steps: string[] }[];
+      }[];
+    }>(`/api/workflows/${id}/ci/workflows`),
+
+  getRisks: (id: string) => request<{ risks: RiskItem[] }>(`/api/workflows/${id}/risks`),
+  analyzeRisks: (id: string) => request<{ risks: RiskItem[] }>(`/api/workflows/${id}/risks/analyze`, { method: "POST" }),
 
   getEvents: (id: string) => request<{ events: AuditEventItem[] }>(`/api/workflows/${id}/events`),
   getEvidence: (id: string) => request<{ evidence: RetrievalEvidenceItem[] }>(`/api/workflows/${id}/evidence`),
@@ -112,7 +281,13 @@ export const api = {
       body: JSON.stringify({ repository_id, query, top_k }),
     }),
   askRepository: (repository_id: string, question: string) =>
-    request<{ answer: string; cited_files: string[]; evidence: RetrievalEvidenceItem[] }>("/api/repository/ask", {
+    request<{
+      answer: string;
+      cited_files: string[];
+      evidence: RetrievalEvidenceItem[];
+      // Where the answer is: file-name matches first, then the retrieved pieces.
+      locations: { file: string; start_line: number; end_line: number; symbol: string; why: string }[];
+    }>("/api/repository/ask", {
       method: "POST",
       body: JSON.stringify({ repository_id, question }),
     }),

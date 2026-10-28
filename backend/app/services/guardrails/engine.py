@@ -176,6 +176,9 @@ CORS_WILDCARD_PATTERN = re.compile(r"allow_origins\s*=\s*\[\s*[\"']\*[\"']\s*\]"
 DANGEROUS_INPUT_PATTERNS = [
     re.compile(r"(?i)delete (the )?production (database|db)"),
     re.compile(r"(?i)drop (table|database)"),
+    # Same intents with articles/qualifiers in between ("drop the production database").
+    re.compile(r"(?i)\b(drop|delete|wipe|destroy|erase)\s+(the\s+)?(entire\s+|whole\s+)?(production\s+|prod\s+|live\s+)(database|db|tables?|data)\b"),
+    re.compile(r"(?i)\bdelete\s+all\s+(the\s+)?(user|customer|production)?\s*(records|data|users|accounts)\b"),
     re.compile(r"(?i)rm\s+-rf"),
     re.compile(r"(?i)wipe (the )?database"),
     re.compile(r"(?i)truncate (table)?"),
@@ -1300,8 +1303,16 @@ def check_output_unsafe_command(enforcement_point: str, texts: dict[str, str]) -
     )
 
 
-def check_output_scope_validation(enforcement_point: str, files_changed: int, patch_lines_by_file: dict[str, int], approved_files: list[str], changed_files: list[str]) -> GuardrailCheckResult:
-    over_files = files_changed > settings.max_files_changed
+def check_output_scope_validation(
+    enforcement_point: str,
+    files_changed: int,
+    patch_lines_by_file: dict[str, int],
+    approved_files: list[str],
+    changed_files: list[str],
+    max_files: int | None = None,
+) -> GuardrailCheckResult:
+    max_files = max_files if max_files is not None else settings.max_files_changed
+    over_files = files_changed > max_files
     over_lines = {f: n for f, n in patch_lines_by_file.items() if n > settings.max_patch_lines}
     approved_set = set(approved_files)
     unrelated = [f for f in changed_files if f not in approved_set]

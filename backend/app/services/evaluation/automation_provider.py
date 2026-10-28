@@ -73,7 +73,7 @@ class GitHubActionsProvider(AutomationProvider):
             raise AutomationProviderUnavailableError(
                 "GitHub Actions provider requires GITHUB_TOKEN/GITHUB_OWNER/GITHUB_REPO."
             )
-        run = github_ops.get_latest_workflow_run()
+        run = github_ops.get_latest_workflow_run(github_ops.settings_target())
         if run is None:
             return AutomationRunResult(provider=self.name, status="pending", detail="No workflow run found yet.")
         return AutomationRunResult(

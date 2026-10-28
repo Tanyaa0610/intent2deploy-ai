@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -117,4 +118,50 @@ def ask_repository(payload: AskRequest, session: Session = Depends(get_session))
         {"question": payload.question, "retrieved": to_context_dicts(retrieved)},
         schema=_Answer,
     )
-    return {"answer": result.parsed.answer, "cited_files": result.parsed.cited_files, "evidence": to_context_dicts(retrieved)}
+    evidence = to_context_dicts(retrieved)
+    return {
+        "answer": result.parsed.answer,
+        "cited_files": result.parsed.cited_files,
+        "evidence": evidence,
+        "locations": _locations(Path(repo.local_path), payload.question, evidence),
+    }
+
+
+_STOP = {"where", "what", "which", "file", "files", "the", "and", "for", "with", "how", "does", "is", "are", "can",
+         "find", "show", "code", "located", "location", "config", "configuration", "configured", "defined", "logic",
+         "this", "that", "there", "our", "my", "app", "project"}
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".ruff_cache", "data", "dist", "build"}
+
+
+def _locations(root: Path, question: str, evidence: list[dict], limit: int = 5) -> list[dict]:
+    """Where the answer is: files whose name matches the question first (e.g.
+    "docker" -> Dockerfile, docker-compose.yml), then the retrieved pieces."""
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", question.lower()) if w not in _STOP}
+    out: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    if words and root.is_dir():
+        for p in sorted(root.rglob("*")):
+            rel = p.relative_to(root)
+            if not p.is_file() or any(part in _SKIP_DIRS for part in rel.parts):
+                continue
+            name = rel.as_posix().lower()
+            hits = sorted(w for w in words if w in name)
+            if not hits:
+                continue
+            try:
+                lines = p.read_text(encoding="utf-8", errors="ignore").count("\n") + 1
+            except OSError:
+                continue
+            out.append({"file": rel.as_posix(), "start_line": 1, "end_line": lines, "symbol": "",
+                        "why": f"the file name matches '{', '.join(hits)}'", "score": 1.0 + len(hits)})
+            seen.add((rel.as_posix(), 1))
+    out.sort(key=lambda x: (-x["score"], len(x["file"])))
+    for e in evidence:
+        key = (e["file"], e["start_line"])
+        if key in seen or any(o["file"] == e["file"] and o["start_line"] == 1 for o in out):
+            continue
+        seen.add(key)
+        methods = e.get("retrieval_method", "").replace("+", " + ").replace("semantic", "meaning").replace("keyword", "keywords")
+        out.append({"file": e["file"], "start_line": e["start_line"], "end_line": e["end_line"], "symbol": e.get("symbol", ""),
+                    "why": f"its content matches by {methods}", "score": float(e.get("score", 0))})
+    return [{k: v for k, v in o.items() if k != "score"} for o in out[:limit]]

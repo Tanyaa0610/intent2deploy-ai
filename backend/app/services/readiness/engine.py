@@ -22,6 +22,13 @@ class ReadinessInput:
     rollback_status: str  # PASSED | WARNING | BLOCKED | NOT_APPLICABLE
     ci_passed: bool | None
     cost_status: str = "NOT_APPLICABLE"  # PASSED | WARNING | NOT_APPLICABLE
+    preexisting_chaos_failures: int = 0  # failures in code the change does not touch
+    # PASSED (image built) | SKIPPED (Dockerfile present, no local Docker) | FAILED (build failed)
+    # | MISSING (no Dockerfile) | NOT_APPLICABLE (no workspace yet)
+    container_status: str = "NOT_APPLICABLE"
+    # Live production verification (prod_* validation stages): PASSED | FAILED
+    # | SKIPPED (could not be run here) | NOT_APPLICABLE (not run)
+    production_status: str = "NOT_APPLICABLE"
 
 
 @dataclass
@@ -45,6 +52,8 @@ def assess(inp: ReadinessInput) -> ReadinessAssessment:
     checklist["rollback"] = inp.rollback_status
     checklist["open_risk"] = "CRITICAL" if inp.open_critical_risks else ("HIGH" if inp.open_high_risks else "NONE")
     checklist["cost"] = inp.cost_status
+    checklist["container"] = inp.container_status
+    checklist["production_tests"] = inp.production_status
 
     hard_block = False
     if inp.validation_passed is False:
@@ -59,6 +68,15 @@ def assess(inp: ReadinessInput) -> ReadinessAssessment:
     if inp.ci_passed is False:
         reasons.append("Required CI checks did not pass.")
         hard_block = True
+    if inp.container_status == "MISSING":
+        reasons.append("The project is not containerized: there is no Dockerfile.")
+        hard_block = True
+    if inp.container_status == "FAILED":
+        reasons.append("The Docker image failed to build.")
+        hard_block = True
+    if inp.production_status == "FAILED":
+        reasons.append("Production verification failed: the running service did not pass its live checks.")
+        hard_block = True
 
     if hard_block:
         return ReadinessAssessment(decision="NOT_READY", reasons=reasons, checklist=checklist)
@@ -72,12 +90,20 @@ def assess(inp: ReadinessInput) -> ReadinessAssessment:
         warnings.append(f"Resilience/chaos pass rate is {inp.chaos_pass_rate * 100:.0f}%, below 100%.")
     if inp.chaos_pass_rate is None:
         warnings.append("No resilience/chaos experiments were applicable or run for this change.")
+    if inp.preexisting_chaos_failures:
+        warnings.append(
+            f"{inp.preexisting_chaos_failures} pre-existing resilience issue(s) in code this change does not touch."
+        )
     if inp.rollback_status in ("WARNING",):
         warnings.append("A HIGH-risk change has no documented rollback strategy.")
     if inp.cost_status == "WARNING":
         warnings.append("Estimated LLM/workflow cost is approaching or over the configured budget.")
     if inp.validation_passed is None:
         warnings.append("Validation has not been run yet.")
+    if inp.container_status == "SKIPPED":
+        warnings.append("The Docker image was not built locally (Docker isn't running here); CI builds and checks it on GitHub.")
+    if inp.production_status == "SKIPPED":
+        warnings.append("The running service was not tested here (production verification was skipped).")
     if inp.ci_passed is None:
         warnings.append("CI has not been run or is not configured for this workflow.")
 
