@@ -19,6 +19,10 @@ export interface Workflow {
   project_id: string;
   repository_id: string;
   intent: string;
+  revision_of?: string | null; // set when this workflow fixes a problem reported on another one
+  revision_note?: string;
+  revision_attachments?: string; // JSON list of screenshot file names
+  revision_addons?: string; // JSON list of add-on ids
   base_branch: string;
   branch_name: string;
   state: string;
@@ -26,6 +30,11 @@ export interface Workflow {
   updated_at: string;
   repair_attempts: number;
   human_intervention_count: number;
+  // "greenfield": the repository had no usable source code, so the project is
+  // designed and generated from scratch (see greenfield_design_json).
+  project_mode?: "existing" | "greenfield";
+  greenfield_design_json?: string;
+  failed_from?: string;
   indexing_ms: number | null;
   retrieval_ms: number | null;
   planning_ms: number | null;
@@ -623,4 +632,222 @@ export interface ExperimentComparison {
   interpretation?: string[];
   research_question_alignment?: ResearchQuestionAlignmentRow[];
   statistical_note?: string;
+}
+
+// ---- New types for the interactive control centre upgrade ----
+
+export interface PlanStepUpdate {
+  id: string;
+  description: string;
+  files: string[];
+}
+
+export interface DashboardSummary {
+  active_workflows: number;
+  completed_workflows: number;
+  failed_workflows: number;
+  awaiting_approval: number;
+  validation_pass_rate: number | null;
+  production_readiness: Record<string, number> | null;
+  human_interventions: number;
+  guardrail_violations: number;
+  avg_execution_time_ms: number | null;
+  avg_repair_attempts: number | null;
+  has_data: boolean;
+}
+
+export interface AttentionItem {
+  id: string;
+  intent: string;
+  state: string;
+  project_name: string;
+  repository_name: string;
+  updated_at: string;
+  repair_attempts: number;
+  human_intervention_count: number;
+  awaiting_action: string | null;
+}
+
+export interface DashboardAttention {
+  attention: AttentionItem[];
+  recent_completed: AttentionItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Repository Manager
+// ---------------------------------------------------------------------------
+export type RepoStatus = "cloning" | "indexing" | "syncing" | "ready" | "error" | "disconnected";
+
+export interface ManagedRepository {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: "local" | "github" | "created";
+  source: string;
+  local_path: string;
+  remote_url: string;
+  is_private: boolean;
+  status: RepoStatus;
+  status_detail: string;
+  connected_at: string | null;
+  indexed_at: string | null;
+  file_count: number;
+  chunk_count: number;
+  source_file_count: number;
+  accessible: boolean;
+  is_git: boolean;
+  branch: string | null;
+  head: string | null;
+  dirty: boolean | null;
+  workflow_count: number;
+  last_workflow_at: string | null;
+}
+
+export interface RepoTreeEntry {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size: number | null;
+  ignored: boolean;
+  restricted: boolean;
+}
+
+export interface RepoFile {
+  path: string;
+  size: number;
+  language: string;
+  lines: number;
+  content: string;
+}
+
+export interface RepoTextMatch {
+  file: string;
+  line: number;
+  text: string;
+}
+
+export interface RepoInsights {
+  indexed: boolean;
+  indexed_at?: string;
+  chunks?: number;
+  files?: number;
+  symbols?: number;
+  languages?: { language: string; files: number }[];
+  chunk_types?: { type: string; count: number }[];
+  largest_files?: { file: string; chunks: number }[];
+}
+
+export interface RiskItem {
+  risk_id: string;
+  title: string;
+  component: string;
+  severity: string;
+  likelihood: string;
+  blast_radius: string;
+  detection: string;
+  mitigation: string;
+  validation_method: string;
+  status: string;
+  evidence: string[];
+  source: string;
+}
+
+export interface GreenfieldDesign {
+  project_name: string;
+  summary: string;
+  requirements: string[];
+  non_functional: string[];
+  acceptance_criteria: string[];
+  stack: string;
+  components: { name: string; responsibility: string; files: string[] }[];
+  files: { path: string; purpose: string }[];
+  dependencies: string[];
+  test_command: string;
+  run_command: string;
+  risks: string[];
+  template: string;
+}
+
+export interface CheckDetails {
+  name: string;
+  event: string;
+  status: string;
+  conclusion: string;
+  url: string;
+  seconds?: number | null;
+  steps: { number?: number; name: string; status: string; conclusion: string; seconds: number | null }[];
+  sections: { title: string; output: string[] }[];
+  tests: { name: string; outcome: string }[];
+  test_summary: string;
+  logs_available: boolean;
+}
+
+export interface PreviewInfo {
+  running: boolean;
+  mode?: "docker" | "python";
+  url?: string;
+  open_url?: string;
+  port?: number;
+  comment_url?: string;
+  comment_error?: string;
+  branch?: string;
+  sha?: string;
+  exit_code?: number | null;
+  log?: string[];
+  // Zero-downtime deployment status
+  strategy?: string;
+  release?: number | null;
+  standby?: boolean;
+  previous?: { sha: string; number: number; warm: boolean; warm_until: number | null } | null;
+  monitor?: DeploymentMonitor;
+  traffic?: { requests: number; failovers: number; server_errors: number; unavailable: number };
+  releases?: ReleaseSummary[];
+  last_release?: ReleaseSummary | null;
+}
+
+export interface DeploymentMonitor {
+  enabled: boolean;
+  interval_seconds: number;
+  checks: number;
+  ok: number;
+  availability: number | null;
+  consecutive_failures: number;
+  last_check: number | null;
+  last_latency_ms: number | null;
+  down_since: number | null;
+  incidents: { at: number; text: string }[];
+}
+
+export interface ReleaseSummary {
+  number: number;
+  branch: string;
+  sha: string;
+  status: "candidate" | "live" | "previous" | "blocked" | "retired";
+  created_at: number;
+  reason: string;
+  checks: { stage: string; status: string; report: string }[];
+}
+
+export interface AlertItem {
+  id: string;
+  severity: "CRITICAL" | "WARNING" | "INFO";
+  source: string;
+  deployment: string;
+  workflow_id: string | null;
+  title: string;
+  detail: string;
+  acknowledged: boolean;
+  delivered_to: string;
+  created_at: string;
+}
+
+export type AlertCounts = { CRITICAL: number; WARNING: number; INFO: number };
+
+
+/** A built-in upgrade that can be applied to code on staging without an AI model. */
+export interface AddOnItem {
+  id: string;
+  title: string;
+  description: string;
+  status: "available" | "applied" | "not_supported";
 }

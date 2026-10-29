@@ -36,7 +36,21 @@ class Repository(SQLModel, table=True):
     indexed_at: datetime | None = None
     file_count: int = 0
     chunk_count: int = 0
+    # Indexed files that are actual source code (not docs/config). 0 after a
+    # successful index means the repository is empty for code purposes.
+    source_file_count: int = 0
     collection_name: str = ""  # Chroma collection name for this repository
+
+    # Repository Manager metadata. Rows created implicitly by a workflow run
+    # stay `managed=False` and are not listed as connected repositories.
+    managed: bool = False
+    name: str = ""
+    kind: str = "local"  # local | github | created
+    remote_url: str = ""  # credential-free clone URL (GitHub repositories only)
+    is_private: bool = False
+    status: str = "ready"  # cloning | indexing | ready | error
+    status_detail: str = ""
+    connected_at: datetime | None = None
 
 
 class Workflow(SQLModel, table=True):
@@ -55,6 +69,19 @@ class Workflow(SQLModel, table=True):
     human_intervention_count: int = 0
     environment: Environment = Field(default=Environment.SANDBOX)
     baseline_tests_passed: bool | None = None
+    # "existing": change an existing codebase. "greenfield": the repository had
+    # no usable source code, so the project is designed and generated from scratch.
+    project_mode: str = "existing"
+    # A revision is a follow-up workflow that fixes a problem a person found
+    # after testing this work (normally on staging).
+    revision_of: str | None = Field(default=None, index=True)
+    revision_note: str = ""
+    revision_attachments: str = "[]"  # JSON list of screenshot file names (see app/services/attachments.py)
+    revision_addons: str = "[]"  # JSON list of built-in add-on ids this revision applies (app/services/addons)
+    # State the workflow was in when it failed (to resume from there), or
+    # "INPUT_REFUSED" when the request itself was blocked (not resumable).
+    failed_from: str = ""
+    greenfield_design_json: str = ""
 
     # AI/LLM cost tracking (Part 5 — COST guardrails). Token counts are
     # ESTIMATES derived from real prompt/response text length (chars // 4),
@@ -265,3 +292,18 @@ class ProductionReadinessAssessment(SQLModel, table=True):
     reasons_json: str = "[]"
     checklist_json: str = "{}"
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class Alert(SQLModel, table=True):
+    """Something in a running deployment or a production check needs attention."""
+
+    id: str = Field(default_factory=gen_id, primary_key=True)
+    severity: str = "WARNING"  # INFO | WARNING | CRITICAL
+    source: str = ""  # release | monitor | validation
+    deployment: str = Field(default="", index=True)  # e.g. "acme/shop@staging"
+    workflow_id: str | None = Field(default=None, index=True)
+    title: str = ""
+    detail: str = ""
+    acknowledged: bool = False
+    delivered_to: str = ""  # external channels it was sent to, e.g. "webhook"
+    created_at: datetime = Field(default_factory=utcnow, index=True)

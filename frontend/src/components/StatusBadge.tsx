@@ -50,6 +50,8 @@ const STATE_TONE: Record<string, Tone> = {
   UNKNOWN: "neutral",
   UNVERIFIED: "danger",
   READY: "success",
+  SUPERSEDED: "neutral",
+  PRE_EXISTING: "warn",
   READY_WITH_WARNINGS: "warn",
   NOT_READY: "danger",
 };

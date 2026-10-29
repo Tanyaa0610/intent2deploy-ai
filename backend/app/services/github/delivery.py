@@ -1,0 +1,517 @@
+"""Feature-branch delivery: publish a workflow's feature branch as a pull
+request into main, report its merge readiness, and merge it only after
+checks pass and an authorized user explicitly approves.
+
+Rules enforced here (main stays stable):
+- Only the feature branch is pushed; protected branches are never pushed to
+  (github_ops.push_branch refuses them). The single exception is creating
+  the first, initial commit of `main` in a completely empty repository so a
+  PR has a base to target.
+- A merge requires: an open PR whose head is the verified commit, no merge
+  conflicts, a branch that is up to date with main, every GitHub check
+  completed successfully (or, if the repository has no CI, passing local
+  validation), write permission for the token's user, and explicit approval.
+"""
+from __future__ import annotations
+
+import json
+
+from git import Repo
+from sqlmodel import Session, select
+
+from app.models.enums import AuditEventType, WorkflowState
+from app.models.models import (
+    GitOperation,
+    Plan,
+    ProductionReadinessAssessment,
+    ProposedChange,
+    Repository,
+    RiskItem,
+    ValidationResult,
+    Workflow,
+)
+from app.services.audit import log_event
+from app.core.config import settings
+from app.services.git.git_ops import change_title, pick_base, protected_branches, remote_heads
+from app.services.repos.manager import _git_env
+from app.services.github import github_ops
+from app.services.validation.sandbox import workspace_path
+
+
+class DeliveryError(Exception):
+    """User-facing error; safe to return in an API response."""
+
+
+def _workflow_and_target(session: Session, workflow_id: str) -> tuple[Workflow, github_ops.GitHubTarget]:
+    workflow = session.get(Workflow, workflow_id)
+    if workflow is None:
+        raise DeliveryError("Workflow not found.")
+    if workflow.state not in (WorkflowState.COMMITTED, WorkflowState.CI_RUNNING, WorkflowState.COMPLETED):
+        raise DeliveryError("Approve the commit first; there is nothing to publish yet.")
+    if not workflow.branch_name:
+        raise DeliveryError("This workflow has no feature branch.")
+    target = github_ops.resolve_target(session.get(Repository, workflow.repository_id))
+    if target is None:
+        raise DeliveryError(
+            "This repository isn't linked to GitHub, so there is nothing to push to. "
+            "Connect it from GitHub on the Repositories page."
+        )
+    return workflow, target
+
+
+def latest_pr(session: Session, workflow_id: str, operation: str = "pr_created") -> GitOperation | None:
+    return session.exec(
+        select(GitOperation)
+        .where(GitOperation.workflow_id == workflow_id, GitOperation.operation == operation)
+        .order_by(GitOperation.timestamp.desc())
+    ).first()
+
+
+def _latest_validation(session: Session, workflow_id: str) -> list[ValidationResult]:
+    rows = session.exec(select(ValidationResult).where(ValidationResult.workflow_id == workflow_id)).all()
+    if not rows:
+        return []
+    top = max(r.attempt for r in rows)
+    return [r for r in rows if r.attempt == top]
+
+
+def local_validation_passed(session: Session, workflow_id: str) -> bool:
+    latest = _latest_validation(session, workflow_id)
+    return bool(latest) and all(r.status == "passed" for r in latest)
+
+
+def build_pr_body(session: Session, workflow: Workflow) -> str:
+    plan = session.exec(select(Plan).where(Plan.workflow_id == workflow.id).order_by(Plan.created_at.desc())).first()
+    changes = session.exec(select(ProposedChange).where(ProposedChange.workflow_id == workflow.id)).all()
+    readiness = session.exec(
+        select(ProductionReadinessAssessment)
+        .where(ProductionReadinessAssessment.workflow_id == workflow.id)
+        .order_by(ProductionReadinessAssessment.created_at.desc())
+    ).first()
+    risks = session.exec(select(RiskItem).where(RiskItem.workflow_id == workflow.id)).all()
+
+    lines = [
+        f"**Request:** {workflow.intent.strip()}",
+        "",
+        "## Summary",
+        plan.summary if plan else "(no plan recorded)",
+        "",
+        f"## Changes ({len(changes)} file{'s' if len(changes) != 1 else ''})",
+    ]
+    lines += [f"- `{c.file}` ({c.operation}) — {c.reason.strip().splitlines()[0][:140] if c.reason else ''}" for c in changes]
+    lines += ["", "## Test results (local validation)", "", "| Stage | Result | Command |", "|---|---|---|"]
+    for r in _latest_validation(session, workflow.id):
+        lines.append(f"| {r.stage} | {'✅' if r.status == 'passed' else '❌'} {r.status} | `{r.command}` |")
+    if readiness:
+        lines += ["", f"## Production readiness: {readiness.decision}"]
+        lines += [f"- {reason}" for reason in json.loads(readiness.reasons_json)]
+    open_risks = [r for r in risks if r.status == "OPEN" and r.severity in ("CRITICAL", "HIGH")]
+    if open_risks:
+        lines += ["", "## Open risks"] + [f"- **{r.severity}** {r.title}" for r in open_risks]
+    lines += [
+        "",
+        "---",
+        f"Generated by Intent2Deploy AI · workflow `{workflow.id}` · branch `{workflow.branch_name}` → `{workflow.base_branch}`.",
+        "Merge only after checks pass and an authorized reviewer approves.",
+    ]
+    return "\n".join(lines)
+
+
+def publish(session: Session, workflow_id: str, token: str | None) -> dict:
+    """Push the feature branch and open (or update) its PR into the base branch."""
+    workflow, target = _workflow_and_target(session, workflow_id)
+    workspace = workspace_path(workflow_id)
+    if not (workspace / ".git").is_dir():
+        raise DeliveryError("The workflow workspace is missing; start a new workflow.")
+    base = workflow.base_branch
+    if workflow.branch_name == base or workflow.branch_name in protected_branches():
+        raise DeliveryError(f"Refusing to publish: '{workflow.branch_name}' is a protected branch.")
+
+    initialized = False
+    staging_created = False
+    try:
+        token = github_ops._resolve_token(token)  # pushing always needs one
+        with Repo(workspace) as repo, repo.git.custom_environment(**_git_env(token)):
+            heads, default = remote_heads(repo, target.clone_url)
+            local_heads = {h.name for h in repo.heads}
+            upstream = {r.name for r in repo.refs if r.path.startswith("refs/remotes/upstream/")}
+        release_base = pick_base([h for h in heads if h != settings.staging_branch], default) or "main"
+
+        if not heads:
+            # Completely empty repository: create main's initial commit first.
+            init_branch = "main" if "main" in local_heads else release_base
+            initialized = github_ops.initialize_empty_remote(workspace, init_branch, target, token)
+            release_base = init_branch
+            if initialized:
+                session.add(GitOperation(workflow_id=workflow_id, operation="base_initialized",
+                                         detail=f"{target.full_name}:{init_branch} (empty repository)", ref=init_branch, approved=True))
+                heads = [init_branch]
+
+        if base == settings.staging_branch and base not in heads:
+            # Create the integration branch from main's head — no feature code in it.
+            source = f"refs/remotes/upstream/{release_base}" if f"upstream/{release_base}" in upstream else f"refs/heads/{release_base}"
+            staging_created = github_ops.create_remote_branch(workspace, base, source, target, token)
+            if staging_created:
+                session.add(GitOperation(workflow_id=workflow_id, operation="staging_created",
+                                         detail=f"{target.full_name}:{base} from {release_base}", ref=base, approved=True))
+                heads.append(base)
+
+        if base not in heads:
+            raise DeliveryError(
+                f"{target.full_name} has no '{base}' branch to open a pull request against "
+                f"(branches: {', '.join(heads) or 'none'})."
+            )
+        github_ops.push_branch(workspace, workflow.branch_name, target, token)
+        session.add(GitOperation(workflow_id=workflow_id, operation="push",
+                                 detail=f"{target.full_name}:{workflow.branch_name}", ref=workflow.branch_name, approved=True))
+        pr = github_ops.find_or_create_pull_request(
+            target, workflow.branch_name, base, change_title(workflow.intent),
+            build_pr_body(session, workflow), token,
+        )
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        session.commit()
+        raise DeliveryError(str(exc)) from exc
+
+    session.add(GitOperation(workflow_id=workflow_id, operation="pr_created", detail=pr.url, ref=str(pr.number), approved=True))
+    session.commit()
+    log_event(session, workflow_id, AuditEventType.PR_CREATED, stage="github",
+              metadata={"number": pr.number, "url": pr.url, "base": base, "head": workflow.branch_name})
+    return {"number": pr.number, "url": pr.url, "base": base, "head": workflow.branch_name,
+            "repository": target.full_name, "initialized_base": initialized, "staging_created": staging_created}
+
+
+def evaluate(session: Session, workflow_id: str, st: github_ops.PullRequestStatus) -> list[str]:
+    """Every reason the PR may not be merged right now (empty = mergeable)."""
+    blockers: list[str] = []
+    if st.merged:
+        return ["Already merged."]
+    if st.state != "open":
+        blockers.append("The pull request is closed.")
+    if st.mergeable is None or st.mergeable_state == "unknown":
+        blockers.append("GitHub is still checking whether the branch can be merged — refresh in a moment.")
+    elif st.mergeable is False or st.mergeable_state == "dirty":
+        blockers.append(f"Merge conflicts with {st.base}. Resolve them on GitHub, or start a new workflow from the latest {st.base}.")
+    elif st.mergeable_state == "behind":
+        blockers.append(f"The branch is behind {st.base}: update it from {st.base} so checks run against the latest code.")
+    elif st.mergeable_state == "blocked":
+        blockers.append("GitHub branch protection is blocking the merge (e.g. required reviews or required checks).")
+    elif st.mergeable_state == "draft":
+        blockers.append("The pull request is a draft.")
+    if st.checks_pending:
+        blockers.append(f"{len(st.checks_pending)} check(s) still running: {', '.join(c.name for c in st.checks_pending)}.")
+    if st.checks_failed:
+        blockers.append(f"{len(st.checks_failed)} check(s) failed: {', '.join(c.name for c in st.checks_failed)}.")
+    if not st.checks and not local_validation_passed(session, workflow_id):
+        blockers.append("The repository has no CI checks and local validation did not pass.")
+    if not st.viewer_can_merge:
+        blockers.append(f"GitHub user '{st.viewer}' does not have write access to merge into {st.base}.")
+    return blockers
+
+
+def status(session: Session, workflow_id: str, token: str | None) -> dict:
+    workflow, target = _workflow_and_target(session, workflow_id)
+    pr_op = latest_pr(session, workflow_id)
+    if pr_op is None:
+        return {"published": False, "repository": target.full_name, "base": workflow.base_branch, "head": workflow.branch_name}
+    from app.core.config import settings
+
+    if not (token or settings.github_token):
+        # The PR is known locally; live checks/mergeability need a token.
+        return {
+            "published": True,
+            "needs_token": True,
+            "repository": target.full_name,
+            "number": int(pr_op.ref),
+            "url": pr_op.detail,
+            "base": workflow.base_branch,
+            "head": workflow.branch_name,
+            "blockers": ["Enter your GitHub token to load the checks and merge status."],
+            "can_merge": False,
+        }
+    try:
+        st = github_ops.get_pull_request_status(target, int(pr_op.ref), token)
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+    blockers = evaluate(session, workflow_id, st)
+    return {
+        "published": True,
+        "repository": target.full_name,
+        "number": st.number,
+        "url": st.url,
+        "title": st.title,
+        "state": "merged" if st.merged else st.state,
+        "merge_sha": st.merge_sha if st.merged else "",
+        "base": st.base,
+        "head": st.head,
+        "head_sha": st.head_sha,
+        "mergeable_state": st.mergeable_state,
+        "checks": [
+            {"id": c.id, "name": c.name, "event": c.event, "status": c.status, "conclusion": c.conclusion, "url": c.url}
+            for c in st.checks
+        ],
+        "checks_summary": {
+            "total": len(st.checks),
+            "pending": len(st.checks_pending),
+            "failed": len(st.checks_failed),
+            "passed": len(st.checks) - len(st.checks_pending) - len(st.checks_failed),
+        },
+        "local_validation_passed": local_validation_passed(session, workflow_id),
+        "viewer": st.viewer,
+        "viewer_can_merge": st.viewer_can_merge,
+        "blockers": blockers,
+        "can_merge": not blockers,
+    }
+
+
+def update_branch(session: Session, workflow_id: str, token: str | None) -> dict:
+    workflow, target = _workflow_and_target(session, workflow_id)
+    pr_op = latest_pr(session, workflow_id)
+    if pr_op is None:
+        raise DeliveryError("Open the pull request first.")
+    try:
+        github_ops.update_pull_request_branch(target, int(pr_op.ref), token)
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+    session.add(GitOperation(workflow_id=workflow_id, operation="branch_updated",
+                             detail=f"merged latest {workflow.base_branch} into {workflow.branch_name}", ref=workflow.branch_name, approved=True))
+    session.commit()
+    return {"status": "updated", "detail": f"Merged the latest {workflow.base_branch} into {workflow.branch_name}; checks will re-run."}
+
+
+def merge(session: Session, workflow_id: str, token: str | None, approved: bool, comment: str = "") -> dict:
+    from app.services import orchestrator as orch
+    from app.services.guardrails import engine as guardrails
+
+    workflow, target = _workflow_and_target(session, workflow_id)
+    guardrails.record(session, workflow_id, guardrails.check_deployment_approval("merge_to_main", approved, comment))
+    if not approved:
+        raise DeliveryError("Merging into main requires explicit approval.")
+    pr_op = latest_pr(session, workflow_id)
+    if pr_op is None:
+        raise DeliveryError("Open the pull request first.")
+    try:
+        st = github_ops.get_pull_request_status(target, int(pr_op.ref), token)
+        blockers = evaluate(session, workflow_id, st)
+        if blockers:
+            raise DeliveryError("Not merged: " + " ".join(blockers))
+        sha = github_ops.merge_pull_request(
+            target, st.number, st.head_sha, f"{st.title} (#{st.number})",
+            f"Approved by {st.viewer} via Intent2Deploy AI (workflow {workflow_id}).{' ' + comment if comment else ''}", token,
+        )
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+
+    session.add(GitOperation(workflow_id=workflow_id, operation="merged",
+                             detail=f"PR #{st.number} into {st.base} by {st.viewer}", ref=sha, approved=True))
+    session.commit()
+    log_event(session, workflow_id, AuditEventType.WORKFLOW_COMPLETED, stage="github",
+              message=f"PR #{st.number} merged into {st.base} by {st.viewer}.", metadata={"merge_sha": sha})
+    if workflow.state == WorkflowState.COMMITTED:
+        orch.finalize_workflow(session, workflow_id)
+    result = {"status": "merged", "number": st.number, "merge_sha": sha, "base": st.base, "url": st.url}
+    if settings.staging_branch and st.base == settings.staging_branch:
+        # Merged into staging: start it locally right away and say where on the PR.
+        try:
+            info = preview_start(session, workflow_id, token)
+            result["preview"] = info
+        except DeliveryError as exc:
+            result["preview_error"] = str(exc)
+    return result
+
+
+
+def check_details(session: Session, workflow_id: str, check_id: int, token: str | None) -> dict:
+    """Steps, output and test results for one check of this workflow's PR."""
+    _, target = _workflow_and_target(session, workflow_id)
+    try:
+        return github_ops.get_check_details(target, check_id, token)
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Release: promote the integration branch (staging) to main
+# ---------------------------------------------------------------------------
+def _release_context(session: Session, workflow_id: str) -> tuple[Workflow, github_ops.GitHubTarget, str, str]:
+    workflow, target = _workflow_and_target(session, workflow_id)
+    staging = settings.staging_branch
+    if not staging or workflow.base_branch != staging:
+        raise DeliveryError("This workflow merges into main directly; there is no staging release step.")
+    if latest_pr(session, workflow_id, "merged") is None:
+        raise DeliveryError(f"Merge the feature pull request into {staging} first.")
+    return workflow, target, staging, "main"
+
+
+def _pr_status_dict(session: Session, workflow_id: str, st: github_ops.PullRequestStatus, blockers: list[str]) -> dict:
+    return {
+        "published": True,
+        "number": st.number, "url": st.url, "title": st.title,
+        "state": "merged" if st.merged else st.state,
+        "merge_sha": st.merge_sha if st.merged else "",
+        "base": st.base, "head": st.head, "head_sha": st.head_sha,
+        "mergeable_state": st.mergeable_state,
+        "checks": [
+            {"id": c.id, "name": c.name, "event": c.event, "status": c.status, "conclusion": c.conclusion, "url": c.url}
+            for c in st.checks
+        ],
+        "checks_summary": {
+            "total": len(st.checks), "pending": len(st.checks_pending), "failed": len(st.checks_failed),
+            "passed": len(st.checks) - len(st.checks_pending) - len(st.checks_failed),
+        },
+        "local_validation_passed": local_validation_passed(session, workflow_id),
+        "viewer": st.viewer, "viewer_can_merge": st.viewer_can_merge,
+        "blockers": blockers, "can_merge": not blockers,
+    }
+
+
+def release_open(session: Session, workflow_id: str, token: str | None) -> dict:
+    """Open (or refresh) the release PR staging -> main, listing what it ships."""
+    workflow, target, staging, main = _release_context(session, workflow_id)
+    try:
+        commits = github_ops.compare_commits(target, main, staging, token)
+        if not commits:
+            raise DeliveryError(f"{staging} has nothing new compared with {main}.")
+        running = preview_info(session, workflow_id)
+        preview_lines = (
+            ["", f"**Staging preview:** {running['open_url']} (local, on the computer running Intent2Deploy)"]
+            if running.get("running") else []
+        )
+        body = "\n".join(
+            [f"Release `{staging}` → `{main}`.", "", f"## Included ({len(commits)} commit{'s' if len(commits) != 1 else ''})"]
+            + [f"- {c}" for c in commits]
+            + preview_lines
+            + ["", "Merge only after the staging build has been run and verified, and an authorized reviewer approves.",
+               f"Opened by Intent2Deploy AI (workflow `{workflow.id}`)."]
+        )
+        pr = github_ops.find_or_create_pull_request(target, staging, main, f"release: {staging} → {main}", body, token)
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+    session.add(GitOperation(workflow_id=workflow_id, operation="release_pr_created", detail=pr.url, ref=str(pr.number), approved=True))
+    session.commit()
+    return {"number": pr.number, "url": pr.url, "base": main, "head": staging, "commits": commits}
+
+
+def release_status(session: Session, workflow_id: str, token: str | None) -> dict:
+    workflow, target, staging, main = _release_context(session, workflow_id)
+    op = latest_pr(session, workflow_id, "release_pr_created")
+    if op is None:
+        return {"published": False, "base": main, "head": staging, "repository": target.full_name}
+    if not (token or settings.github_token):
+        return {"published": True, "needs_token": True, "number": int(op.ref), "url": op.detail, "base": main,
+                "head": staging, "blockers": ["Enter your GitHub token to load the release checks."], "can_merge": False}
+    try:
+        st = github_ops.get_pull_request_status(target, int(op.ref), token)
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+    return {**_pr_status_dict(session, workflow_id, st, evaluate(session, workflow_id, st)), "repository": target.full_name}
+
+
+def release_merge(
+    session: Session, workflow_id: str, token: str | None, approved: bool, verified_on_staging: bool, comment: str = ""
+) -> dict:
+    from app.services.guardrails import engine as guardrails
+
+    workflow, target, staging, main = _release_context(session, workflow_id)
+    guardrails.record(session, workflow_id, guardrails.check_deployment_approval("release_to_main", approved, comment))
+    if not verified_on_staging:
+        raise DeliveryError(f"Confirm you ran and checked the {staging} build before releasing it to {main}.")
+    if not approved:
+        raise DeliveryError(f"Releasing {staging} to {main} requires explicit approval.")
+    op = latest_pr(session, workflow_id, "release_pr_created")
+    if op is None:
+        raise DeliveryError("Open the release pull request first.")
+    try:
+        st = github_ops.get_pull_request_status(target, int(op.ref), token)
+        blockers = evaluate(session, workflow_id, st)
+        if blockers:
+            raise DeliveryError("Not released: " + " ".join(blockers))
+        # A merge commit (not squash) keeps staging and main on the same history.
+        sha = github_ops.merge_pull_request(
+            target, st.number, st.head_sha, f"{st.title} (#{st.number})",
+            f"Verified on {staging} and approved by {st.viewer}.{' ' + comment if comment else ''}", token, method="merge",
+        )
+    except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+        raise DeliveryError(str(exc)) from exc
+    session.add(GitOperation(workflow_id=workflow_id, operation="released",
+                             detail=f"PR #{st.number}: {staging} → {main} by {st.viewer}", ref=sha, approved=True))
+    session.commit()
+    log_event(session, workflow_id, AuditEventType.WORKFLOW_COMPLETED, stage="github",
+              message=f"Released {staging} to {main} (PR #{st.number}).", metadata={"merge_sha": sha})
+    return {"status": "released", "number": st.number, "merge_sha": sha, "url": st.url}
+
+
+# ---------------------------------------------------------------------------
+# Staging preview: run the integration branch locally to check it
+# ---------------------------------------------------------------------------
+def _preview_key(target: github_ops.GitHubTarget, branch: str) -> str:
+    return f"{target.full_name}@{branch}"
+
+
+def _preview_comment(info: dict, branch: str) -> str:
+    return "\n".join([
+        "### ▶️ Staging preview is running",
+        f"`{branch}` (commit `{info.get('sha', '')}`) is running locally:",
+        "",
+        f"- **Open the app:** {info.get('open_url') or info.get('url')}",
+        f"- API docs: {info.get('url')}/docs",
+        "",
+        f"_Local address on the computer running Intent2Deploy — port {info.get('port')} is this project's preview port. "
+        "Check it there, then release staging to main from the workflow page._",
+    ])
+
+
+def preview_start(session: Session, workflow_id: str, token: str | None) -> dict:
+    from app.services import preview
+
+    workflow, target = _workflow_and_target(session, workflow_id)
+    branch = workflow.base_branch
+    tok = token or settings.github_token or None
+    try:
+        info = {**preview.start(_preview_key(target, branch), target.clone_url, branch, _git_env(tok)), "repository": target.full_name}
+    except preview.PreviewError as exc:
+        raise DeliveryError(str(exc)) from exc
+
+    # A release that failed its live checks was not put live (the previous one
+    # keeps serving): there is no new address to announce.
+    if (info.get("last_release") or {}).get("status") == "blocked":
+        return info
+
+    # Post the address on the feature PR so it's visible where the work is reviewed.
+    pr = latest_pr(session, workflow_id)
+    if pr is not None and tok:
+        try:
+            info["comment_url"] = github_ops.comment_on_pull_request(target, int(pr.ref), _preview_comment(info, branch), tok)
+            session.add(GitOperation(workflow_id=workflow_id, operation="preview_announced",
+                                     detail=f"{info.get('open_url')} on PR #{pr.ref}", ref=info["comment_url"], approved=True))
+            session.commit()
+        except (github_ops.GitHubNotConfiguredError, github_ops.GitHubOperationError) as exc:
+            info["comment_error"] = str(exc)
+    return info
+
+
+def preview_info(session: Session, workflow_id: str) -> dict:
+    from app.services import preview
+
+    workflow, target = _workflow_and_target(session, workflow_id)
+    return {**preview.info(_preview_key(target, workflow.base_branch)), "branch": workflow.base_branch}
+
+
+def preview_stop(session: Session, workflow_id: str) -> dict:
+    from app.services import preview
+
+    workflow, target = _workflow_and_target(session, workflow_id)
+    return preview.stop(_preview_key(target, workflow.base_branch))
+
+
+def preview_rollback(session: Session, workflow_id: str) -> dict:
+    from app.services import preview
+
+    workflow, target = _workflow_and_target(session, workflow_id)
+    try:
+        info = preview.rollback(_preview_key(target, workflow.base_branch))
+    except preview.PreviewError as exc:
+        raise DeliveryError(str(exc)) from exc
+    session.add(GitOperation(workflow_id=workflow_id, operation="preview_rollback",
+                             detail=f"rolled back to {info.get('sha')}", ref=info.get("sha", ""), approved=True))
+    session.commit()
+    return {**info, "branch": workflow.base_branch}

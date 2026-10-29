@@ -55,41 +55,25 @@ def test_payment_timeout_reliability_full_pipeline(db_session, demo_repo_copy):
     assert any(r.severity == "CRITICAL" and "payment" in r.title.lower() for r in risks)
 
     # Chaos simulation runs against the workspace, which already has the
-    # idempotency fix applied.
-    #
-    # NOTE: CH01's detector (app/services/chaos/engine.py,
-    # _has_idempotency_protection) is a static regex looking for
-    # "idempotency_cache" / "_cache[" — a pattern written for the old
-    # demo repository's in-memory-dict idempotency implementation. The
-    # ShopFlow fixture's fix (evaluation/tasks/task_011.json /
-    # task_012.json) instead keys the lookup on a SQL query against the
-    # `payments` table — a real, independently-verified fix (see
-    # tests/unit/test_baseline_runner.py and the live end-to-end
-    # verification run as part of the ShopFlow migration), just not one
-    # this particular text pattern recognizes. This is a documented,
-    # narrow limitation of the static-analysis-based chaos detector, not
-    # evidence that the idempotency fix doesn't work — see
-    # docs/EXPERIMENTAL_EVALUATION.md.
+    # idempotency fix applied: the payment path now looks up an existing
+    # payment by (order_id, idempotency_key) before charging, so the retry
+    # experiment passes. (The unfixed repository has the idempotency_key
+    # column but no such lookup, so the same experiment fails there.)
     outcomes = orch.run_chaos_simulation(db_session, wf.id)
     ch01 = next(o for o in outcomes if o.experiment_id == "CH01")
-    assert ch01.result == "FAILED"
+    assert ch01.result == "PASSED"
     assert ch01.evidence_json != "[]"  # it did find and inspect the real payment files
 
-    # Consequently the matching risk is not auto-mitigated by chaos
-    # evidence either (same root cause as above) — it stays OPEN.
+    # Passing chaos evidence against the same component mitigates the
+    # tracked payment risks — by evidence, never by assumption.
     tracked = db_session.exec(
         select(RiskItem).where(RiskItem.workflow_id == wf.id, RiskItem.component == "payments")
     ).all()
     assert tracked
-    assert all(r.status == "OPEN" for r in tracked)
+    assert all(r.status == "MITIGATED" for r in tracked)
 
-    # Readiness correctly reflects the unmitigated risk above (same root
-    # cause — the chaos detector's blind spot, not an actual gap): this
-    # is the human-in-the-loop system working as designed, surfacing a
-    # risk it cannot auto-verify rather than silently waving it through.
     assessment = orch.run_production_readiness(db_session, wf.id)
-    assert assessment.decision == "NOT_READY"
-    assert "unmitigated" in assessment.reasons_json.lower()
+    assert "unmitigated" not in assessment.reasons_json.lower()
 
     wf = orch.approve_commit(db_session, wf.id, True)
     assert wf.state == WorkflowState.COMMITTED

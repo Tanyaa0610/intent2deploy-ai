@@ -51,12 +51,18 @@ def _search_repo(repo_root: Path, pattern: str) -> list[str]:
         except OSError:
             continue
         if re.search(pattern, content, re.I):
-            hits.append(str(p.relative_to(repo_root)))
+            hits.append(p.relative_to(repo_root).as_posix())
     return hits
 
 
 def _has_idempotency_protection(source: str) -> bool:
-    return bool(re.search(r"idempotency_key", source, re.I)) and bool(re.search(r"idempotency_cache|_cache\[", source))
+    """An idempotency key alone (e.g. a stored column) protects nothing: there
+    must also be a lookup by that key before charging — an in-memory cache or
+    a persistent query such as `WHERE ... idempotency_key = ?`."""
+    has_key = bool(re.search(r"idempotency_key", source, re.I))
+    cache_lookup = bool(re.search(r"idempotency_cache|_cache\[", source))
+    query_lookup = bool(re.search(r"WHERE[^\n\"']*\bidempotency_key\s*=", source, re.I))
+    return has_key and (cache_lookup or query_lookup)
 
 
 def run_experiments(repo_root: Path, changed_files: list[str], intent: str) -> list[ChaosOutcome]:

@@ -38,4 +38,18 @@ def isolate_workspaces_and_chroma(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config.settings, "workspaces_dir", str(tmp_path / "workspaces"))
     monkeypatch.setattr(config.settings, "chroma_persist_dir", str(tmp_path / "chroma_data"))
+    # Don't build Docker images in tests (slow, machine-dependent); the
+    # docker_build stage is exercised explicitly in test_containerize.py.
+    monkeypatch.setattr(config.settings, "docker_validation", False)
+    # Booting and load-testing every workflow's app is slow; production
+    # verification is exercised explicitly in test_production_validation.py.
+    monkeypatch.setattr(config.settings, "production_validation", False)
+    # Alerts raised in tests go to a throwaway database, never the real one.
+    from app import models  # noqa: F401
+    from app.services import alerts
+
+    alert_engine = create_engine(f"sqlite:///{tmp_path / 'alerts.db'}")
+    SQLModel.metadata.create_all(alert_engine)
+    monkeypatch.setattr(alerts, "engine_override", alert_engine)
+    monkeypatch.setattr(config.settings, "alert_webhook_url", "")
     yield

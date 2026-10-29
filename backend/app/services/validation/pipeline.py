@@ -6,6 +6,8 @@
 4. Integration tests (if available/configured)
 5. Build (if a build command is configured)
 6. Optional security/static checks
+   (+ production verification: the built app is started the way it ships
+   and tested live — see app/services/validation/production.py)
 7. (Final regression validation is just re-running the same pipeline
    after a repair — see app/services/validation/repair.py)
 """
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.core.config import settings
 from app.services.validation.sandbox import CommandResult, run_command, workspace_path
 
 
@@ -67,6 +70,35 @@ def run_pipeline(
         res = run_command(workspace, build_command.strip())
         stages.append(StageResult(stage="build", result=res))
 
+    unit_tests_passed = res.status == "passed"
+
+    # 5b. Container image build: every project ships a Dockerfile; build it
+    # when a Docker engine is available, otherwise record why it was skipped
+    # (CI builds it on GitHub either way).
+    image = ""
+    if settings.docker_validation and (workspace / "Dockerfile").is_file():
+        from app.services.validation.sandbox import docker_available
+
+        tag = "i2d-validate-" + "".join(ch for ch in workflow_id.lower() if ch.isalnum())[:24]
+        available, detail = docker_available()
+        if available:
+            res = run_command(workspace, f"docker build -t {tag} .", timeout=settings.docker_build_timeout_seconds)
+            image = tag if res.status == "passed" else ""
+        else:
+            res = CommandResult(command=f"docker build -t {tag} .", exit_code=None,
+                                stdout=f"Skipped: {detail} The image is built by CI on GitHub.", stderr="",
+                                duration_ms=0, skipped=True)
+        stages.append(StageResult(stage="docker_build", result=res))
+
+    # 5c. Production verification: boot the app the way it ships (its image
+    # when built, else its production server command) and test it live.
+    if settings.production_validation:
+        from app.services.validation import production
+
+        reason = "" if unit_tests_passed else "Unit tests failed; the running service is tested once they pass."
+        for stage, result in production.run(workspace, image=image, skip_reason=reason):
+            stages.append(StageResult(stage=stage, result=result))
+
     # 6. Optional security/static checks (Ruff's flake8-bandit-derived "S"
     # rule set - a real static check, not a simulated one).
     if security_check_enabled:
@@ -79,6 +111,7 @@ def run_pipeline(
 def overall_status(stages: list[StageResult]) -> str:
     if not stages:
         return "error"
-    if all(s.result.status == "passed" for s in stages if s.stage in ("syntax", "unit_tests")):
+    gating = ("syntax", "unit_tests", "docker_build")
+    if all(s.result.status in ("passed", "skipped") for s in stages if s.stage in gating or s.stage.startswith("prod_")):
         return "passed"
     return "failed"

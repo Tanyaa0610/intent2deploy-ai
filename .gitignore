@@ -24,3 +24,8 @@ evaluation/results/
 chroma_data/
 *.log
 frontend/.vite/
+
+# Runtime data created while Intent2Deploy runs (staging deployments, logs, screenshots)
+previews/
+prod-logs/
+attachments/

@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
-import type { Repository, Workflow } from "../types";
+import type { ManagedRepository, Repository, Workflow } from "../types";
 
-type RepoSource = "local" | "github";
+type RepoSource = "local" | "github" | "connected";
 type Phase = "form" | "running" | "error";
 type ProgressStage = "repo" | "intent" | "indexing" | "planning" | "done";
 
@@ -31,7 +31,8 @@ const EXAMPLES: { title: string; description: string; intent: string; demo?: boo
   },
 ];
 
-function repoLabel(source: RepoSource, value: string): string {
+function repoLabel(source: RepoSource, value: string, connected: ManagedRepository[] = []): string {
+  if (source === "connected") return connected.find((r) => r.id === value)?.name ?? value;
   if (source === "github") {
     const match = value.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
     return match ? `${match[1]}/${match[2]}` : value;
@@ -48,10 +49,21 @@ const PROGRESS_ITEMS: { key: ProgressStage; label: string }[] = [
   { key: "planning", label: "Analyzing architecture" },
   { key: "planning", label: "Preparing implementation plan" },
 ];
+// Shown instead when indexing finds no usable source code.
+const GREENFIELD_PROGRESS_ITEMS: { key: ProgressStage; label: string }[] = [
+  { key: "repo", label: "Repository connected" },
+  { key: "intent", label: "Intent understood" },
+  { key: "indexing", label: "No source code found — generating a new project" },
+  { key: "planning", label: "Analyzing requirements" },
+  { key: "planning", label: "Designing architecture" },
+  { key: "planning", label: "Planning project files" },
+];
 const STAGE_ORDER: ProgressStage[] = ["repo", "intent", "indexing", "planning", "done"];
 
 export function NewWorkflowPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [connected, setConnected] = useState<ManagedRepository[]>([]);
 
   const [intent, setIntent] = useState("");
   const [repoSource, setRepoSource] = useState<RepoSource | null>(null);
@@ -66,6 +78,22 @@ export function NewWorkflowPage() {
   const [stage, setStage] = useState<ProgressStage>("repo");
   const [erroredStage, setErroredStage] = useState<ProgressStage | null>(null);
   const [runError, setRunError] = useState("");
+  const [greenfield, setGreenfield] = useState(false);
+
+  // Repositories from the Repository Manager; ?repository=<id> preselects one.
+  useEffect(() => {
+    const preselect = searchParams.get("repository");
+    api
+      .listManagedRepositories()
+      .then((repos) => {
+        setConnected(repos);
+        if (preselect && repos.some((r) => r.id === preselect)) {
+          setRepoSource("connected");
+          setRepoValue(preselect);
+        }
+      })
+      .catch(() => undefined);
+  }, [searchParams]);
 
   function openPicker() {
     setPickerMode(repoSource || "local");
@@ -77,7 +105,13 @@ export function NewWorkflowPage() {
   function confirmPicker() {
     const value = pickerInput.trim();
     if (!value) {
-      setPickerError(pickerMode === "local" ? "Enter a local repository path." : "Enter a GitHub repository URL.");
+      setPickerError(
+        pickerMode === "local"
+          ? "Enter a local repository path."
+          : pickerMode === "connected"
+            ? "Choose a repository."
+            : "Enter a GitHub repository URL."
+      );
       return;
     }
     if (pickerMode === "github" && !GITHUB_URL_RE.test(value)) {
@@ -96,15 +130,23 @@ export function NewWorkflowPage() {
     if (!finalIntent || !finalSource || !finalValue) return;
 
     setPhase("running");
+    setGreenfield(false);
     setRunError("");
     setErroredStage(null);
 
     try {
       setStage("repo");
-      const project = await api.createProject(`Intent2Deploy — ${new Date().toLocaleString()}`);
-      let repo: Repository;
+      let repo: Pick<Repository, "id" | "project_id">;
       try {
-        repo = finalSource === "github" ? await api.cloneRepository(project.id, finalValue) : await api.indexRepository(project.id, finalValue);
+        if (finalSource === "connected") {
+          const managed = await api.getManagedRepository(finalValue);
+          if (!managed.accessible) throw new Error(`Repository path is not accessible: ${managed.local_path}`);
+          if (["cloning", "indexing", "syncing"].includes(managed.status)) throw new Error(`${managed.name} is busy (${managed.status}). Try again shortly.`);
+          repo = managed;
+        } else {
+          const project = await api.createProject(`Intent2Deploy — ${new Date().toLocaleString()}`);
+          repo = finalSource === "github" ? await api.cloneRepository(project.id, finalValue) : await api.indexRepository(project.id, finalValue);
+        }
       } catch (e) {
         setErroredStage("repo");
         throw e;
@@ -113,7 +155,7 @@ export function NewWorkflowPage() {
       setStage("intent");
       let workflow: Workflow;
       try {
-        workflow = await api.createWorkflow({ project_id: project.id, repository_id: repo.id, intent: finalIntent });
+        workflow = await api.createWorkflow({ project_id: repo.project_id, repository_id: repo.id, intent: finalIntent });
       } catch (e) {
         setErroredStage("intent");
         throw e;
@@ -121,7 +163,8 @@ export function NewWorkflowPage() {
 
       setStage("indexing");
       try {
-        await api.runIndexing(workflow.id);
+        const indexed = await api.runIndexing(workflow.id);
+        setGreenfield(indexed.project_mode === "greenfield");
       } catch (e) {
         setErroredStage("indexing");
         throw e;
@@ -165,6 +208,7 @@ export function NewWorkflowPage() {
 
   function reset() {
     setPhase("form");
+    setGreenfield(false);
     setRunError("");
     setErroredStage(null);
   }
@@ -180,7 +224,7 @@ export function NewWorkflowPage() {
         <div className="card" style={{ maxWidth: 520 }}>
           <div className="card-title">Progress</div>
           <div className="step-list">
-            {PROGRESS_ITEMS.map((item, i) => {
+            {(greenfield ? GREENFIELD_PROGRESS_ITEMS : PROGRESS_ITEMS).map((item, i) => {
               const itemIndex = STAGE_ORDER.indexOf(item.key);
               const currentIndex = STAGE_ORDER.indexOf(stage);
               const isError = erroredStage === item.key;
@@ -234,15 +278,15 @@ export function NewWorkflowPage() {
           <div className="repo-summary">
             <div className="col">
               <div className="k">Repository</div>
-              <div className="v">{repoLabel(repoSource, repoValue)}</div>
+              <div className="v">{repoLabel(repoSource, repoValue, connected)}</div>
             </div>
             <div className="col">
               <div className="k">Source</div>
-              <div className="v">{repoSource === "github" ? "GitHub" : "Local"}</div>
+              <div className="v">{repoSource === "github" ? "GitHub" : repoSource === "connected" ? "Connected" : "Local"}</div>
             </div>
             <div className="col">
               <div className="k">Status</div>
-              <div className="v">Ready to index</div>
+              <div className="v">{repoSource === "connected" ? "Re-indexed on start" : "Ready to index"}</div>
             </div>
             <button type="button" className="btn" onClick={openPicker}>
               Change
@@ -262,20 +306,34 @@ export function NewWorkflowPage() {
             <div className="repo-field-row">
               <div className="field field-source">
                 <label htmlFor="repo-source-select">Repository source</label>
-                <select id="repo-source-select" value={pickerMode} onChange={(e) => setPickerMode(e.target.value as RepoSource)}>
+                <select id="repo-source-select" value={pickerMode} onChange={(e) => { setPickerMode(e.target.value as RepoSource); setPickerInput(""); setPickerError(""); }}>
+                  {connected.length > 0 && <option value="connected">Connected repository</option>}
                   <option value="local">Local Repository</option>
                   <option value="github">GitHub</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="repo-value-input">{pickerMode === "local" ? "Local path" : "GitHub repository URL"}</label>
-                <input
-                  id="repo-value-input"
-                  value={pickerInput}
-                  onChange={(e) => setPickerInput(e.target.value)}
-                  placeholder={pickerMode === "local" ? "/path/to/repository" : "https://github.com/owner/repository"}
-                  autoFocus
-                />
+                <label htmlFor="repo-value-input">
+                  {pickerMode === "local" ? "Local path" : pickerMode === "connected" ? "Repository" : "GitHub repository URL"}
+                </label>
+                {pickerMode === "connected" ? (
+                  <select id="repo-value-input" value={pickerInput} onChange={(e) => setPickerInput(e.target.value)}>
+                    <option value="">Select…</option>
+                    {connected.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id="repo-value-input"
+                    value={pickerInput}
+                    onChange={(e) => setPickerInput(e.target.value)}
+                    placeholder={pickerMode === "local" ? "/path/to/repository" : "https://github.com/owner/repository"}
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
             <div className="btn-row">

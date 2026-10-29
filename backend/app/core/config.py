@@ -43,6 +43,36 @@ class Settings(BaseSettings):
     max_repair_attempts: int = 2
     command_timeout_seconds: int = 120
 
+    # A generated project is larger than an ordinary change (app + tests +
+    # CI + Docker files), so it has its own file limit.
+    max_greenfield_files: int = 25
+
+    # Containerization: build each project's Docker image during validation
+    # when a Docker daemon is reachable (skipped, and reported, otherwise).
+    docker_validation: bool = True
+    docker_build_timeout_seconds: int = 900
+
+    # Production verification (validation stages prod_*): boot the app the
+    # way it ships and test the running service over HTTP — smoke, API
+    # contract, hostile input, load and restart.
+    production_validation: bool = True
+    prod_boot_timeout_seconds: int = 60
+    prod_load_requests: int = 300
+    prod_load_concurrency: int = 20
+    prod_p95_budget_ms: int = 1000
+
+    # Zero-downtime deployments (staging preview): a new release starts next to
+    # the live one and only takes traffic after passing live checks; a hot
+    # standby copy takes over at once if the live one fails; a watchdog keeps
+    # checking and heals. Failures raise alerts — they never take the site down.
+    monitor_enabled: bool = True
+    monitor_interval_seconds: float = 10.0
+    monitor_failure_threshold: int = 2  # consecutive failed checks before healing
+    standby_replica: bool = True
+    rollback_window_seconds: int = 900  # the previous release stays warm this long
+    # Optional: Slack/Teams/any incoming-webhook URL that alerts are POSTed to.
+    alert_webhook_url: str = ""
+
     # AI-DevOps guardrail limits — INFRASTRUCTURE category
     max_blast_radius_files: int = 8
 
@@ -62,8 +92,26 @@ class Settings(BaseSettings):
     # codegen only — never a push target.
     cloned_repos_dir: str = str(PROJECT_ROOT / "cloned_repos")
 
+    # Filesystem roots the Repository Manager may create/connect local
+    # repositories under (comma-separated absolute paths). Empty = the
+    # current user's home directory plus the bundled demo repository. Under
+    # Docker the container only sees its own filesystem, so host folders
+    # must be bind-mounted and listed here (e.g. ALLOWED_REPO_ROOTS=/repos).
+    allowed_repo_roots: str = ""
+
+    # Integration branch for the feature-branch workflow: feature PRs merge
+    # into it first, it can be run/previewed, and it is promoted to main via
+    # a release PR. Empty = feature PRs target main directly.
+    staging_branch: str = "staging"
+
     # Optional external automation adapter (Sweep.dev)
     sweep_api_key: str = ""
+
+    @property
+    def repo_roots(self) -> list[Path]:
+        if self.allowed_repo_roots.strip():
+            return [Path(p.strip()).expanduser() for p in self.allowed_repo_roots.split(",") if p.strip()]
+        return [Path.home(), PROJECT_ROOT / "demo-repository"]
 
     @property
     def is_mock(self) -> bool:

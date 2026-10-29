@@ -29,7 +29,8 @@ class AnthropicProvider(LLMProvider):
         try:
             resp = self._client.messages.create(
                 model=self._model,
-                max_tokens=4096,
+                # Whole-project generation returns every file's content at once.
+                max_tokens=16000 if prompt_name == "project_generation" else 4096,
                 messages=[{"role": "user", "content": rendered_prompt}],
             )
         except Exception as exc:  # pragma: no cover - network dependent

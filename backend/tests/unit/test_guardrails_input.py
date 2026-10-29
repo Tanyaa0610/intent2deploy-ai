@@ -54,3 +54,21 @@ def test_classify_input_always_returns_all_eight_checks():
     result = classify_input("Add a password reset feature.")
     assert len(result.checks) == 8
     assert {c.guardrail_id for c in result.checks} == {f"INPUT-0{i}" for i in range(1, 9)}
+
+
+def test_destructive_request_with_qualifiers_blocked():
+    for text in (
+        "Drop the production database and delete all user records",
+        "Wipe the entire production db",
+        "Delete all user records",
+    ):
+        result = classify_input(text)
+        assert result.classification in ("BLOCKED", "UNSAFE"), text
+
+
+def test_feature_requests_mentioning_delete_stay_valid():
+    for text in (
+        "Add a button to delete the user account from the settings page",
+        "Allow admins to delete records older than 30 days",
+    ):
+        assert classify_input(text).classification == "VALID", text

@@ -56,6 +56,7 @@ ALLOWED_TRANSITIONS: dict[WorkflowState, set[WorkflowState]] = {
     },
     WorkflowState.VALIDATION_FAILED: {
         WorkflowState.REPAIRING,
+        WorkflowState.VALIDATING,  # re-run, e.g. after fixing the validation environment
         WorkflowState.AWAITING_COMMIT_APPROVAL,  # user may accept failure and stop, or override
         WorkflowState.FAILED,
     },
@@ -99,6 +100,9 @@ class AuditEventType(str, Enum):
     CI_FAILED = "CI_FAILED"
     WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
+    AUTO_ANALYSIS_FAILED = "AUTO_ANALYSIS_FAILED"
+    WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
+    REVISION_REQUESTED = "REVISION_REQUESTED"
 
 
 class ChunkType(str, Enum):

@@ -83,10 +83,13 @@ COMMAND_ALLOWLIST = {
     "pip",
     "mypy",
     "coverage",
+    "docker",
 }
 
 # Sub-command allowlist for multi-word invocations like `npm test`.
 NPM_ALLOWED_SUBCOMMANDS = {"test", "run", "install", "ci", "build"}
+# Docker is allowlisted for image builds only (validation); never run/exec/rm.
+DOCKER_ALLOWED_SUBCOMMANDS = {"build"}
 
 DANGEROUS_TOKENS = [
     "rm ", "rm\t", "sudo", "curl ", "wget ", ">", "<", "|", "&&", ";", "$(", "`",
@@ -142,6 +145,9 @@ def validate_command(command: str) -> list[str]:
     # normalize things like "python3.11" -> still must be literally allowlisted
     if executable not in COMMAND_ALLOWLIST:
         raise CommandSecurityError(f"Executable '{executable}' is not in the command allowlist.")
+
+    if executable == "docker" and (len(parts) < 2 or parts[1] not in DOCKER_ALLOWED_SUBCOMMANDS):
+        raise CommandSecurityError("Only 'docker build' is allowlisted.")
 
     if executable == "npm" and len(parts) > 1:
         sub = parts[1]

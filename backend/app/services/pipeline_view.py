@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from app.models.enums import WorkflowState
 from app.models.models import (
     ChaosExperiment,
+    CIRun,
     GeneratedTest,
     GitOperation,
     GuardrailCheck,
@@ -26,6 +27,7 @@ from app.models.models import (
     ValidationResult,
     Workflow,
 )
+from app.core.config import settings
 from app.services.github import github_ops
 
 
@@ -118,27 +120,47 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
         )
     )
 
-    if evidence_rows:
+    if workflow.project_mode == "greenfield":
+        # No source code to retrieve from or analyze: these stages are skipped,
+        # and the architecture comes from the generated design instead.
+        stages.append(
+            _stage("Repository RAG", "SKIPPED", output="Skipped: the repository has no source code (new project).")
+        )
+        design = json.loads(workflow.greenfield_design_json) if workflow.greenfield_design_json else None
         stages.append(
             _stage(
-                "Repository RAG",
-                "PASSED",
-                duration_ms=workflow.retrieval_ms,
-                input_=workflow.intent,
-                output=f"{len(evidence_rows)} evidence chunk(s) retrieved",
-                evidence=[f"{e.file}:{e.start_line}-{e.end_line}" for e in evidence_rows[:10]],
+                "Architecture Analysis",
+                "PASSED" if design else ("RUNNING" if workflow.state == WorkflowState.PLANNING else "PENDING"),
+                output=(
+                    f"Designed: {design['stack']} · {len(design['components'])} component(s) · {len(design['files'])} file(s)"
+                    if design
+                    else ""
+                ),
+                evidence=[f"{c['name']}: {c['responsibility']}" for c in design["components"]] if design else [],
             )
         )
     else:
-        stages.append(_stage("Repository RAG", "PASSED" if repository and repository.indexed_at else "PENDING"))
+        if evidence_rows:
+            stages.append(
+                _stage(
+                    "Repository RAG",
+                    "PASSED",
+                    duration_ms=workflow.retrieval_ms,
+                    input_=workflow.intent,
+                    output=f"{len(evidence_rows)} evidence chunk(s) retrieved",
+                    evidence=[f"{e.file}:{e.start_line}-{e.end_line}" for e in evidence_rows[:10]],
+                )
+            )
+        else:
+            stages.append(_stage("Repository RAG", "PASSED" if repository and repository.indexed_at else "PENDING"))
 
-    stages.append(
-        _stage(
-            "Architecture Analysis",
-            "PASSED" if repository and repository.indexed_at else "PENDING",
-            output="Available on demand via /architecture" if repository and repository.indexed_at else "",
+        stages.append(
+            _stage(
+                "Architecture Analysis",
+                "PASSED" if repository and repository.indexed_at else "PENDING",
+                output="Available on demand via /architecture" if repository and repository.indexed_at else "",
+            )
         )
-    )
 
     if risks:
         open_critical = sum(1 for r in risks if r.severity == "CRITICAL" and r.status == "OPEN")
@@ -189,8 +211,15 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
     else:
         stages.append(_stage("Human Approval", "PENDING"))
 
+    # Only the latest evaluation of each codegen guardrail counts: a block from
+    # an earlier, replaced generation attempt no longer applies.
+    latest_by_id: dict[str, GuardrailCheck] = {}
+    for g in sorted((g for g in guardrail_checks if g.enforcement_point == "codegen"), key=lambda g: g.evaluated_at):
+        latest_by_id[g.guardrail_id] = g
+    latest_codegen_checks = list(latest_by_id.values())
+
     if changes:
-        blocked_codegen = [g for g in guardrail_checks if g.enforcement_point == "codegen" and g.status == "BLOCKED"]
+        blocked_codegen = [g for g in latest_codegen_checks if g.status == "BLOCKED"]
         stages.append(
             _stage(
                 "Code Generation",
@@ -201,7 +230,7 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
             )
         )
     else:
-        stages.append(_stage("Code Generation", "BLOCKED" if any(g.enforcement_point == "codegen" and g.status == "BLOCKED" for g in guardrail_checks) else "PENDING"))
+        stages.append(_stage("Code Generation", "BLOCKED" if any(g.status == "BLOCKED" for g in latest_codegen_checks) else "PENDING"))
 
     stages.append(
         _stage(
@@ -212,19 +241,21 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
         )
     )
 
-    applicable_chaos = [c for c in chaos if c.result != "NOT_APPLICABLE"]
+    applicable_chaos = [c for c in chaos if c.result not in ("NOT_APPLICABLE", "PRE_EXISTING")]
+    preexisting = sum(1 for c in chaos if c.result == "PRE_EXISTING")
+    preexisting_note = f" · {preexisting} pre-existing issue(s) outside this change" if preexisting else ""
     stages.append(
         _stage(
             "Resilience Testing",
             "PASSED" if applicable_chaos and all(c.result == "PASSED" for c in applicable_chaos) else ("FAILED" if applicable_chaos else "PENDING"),
-            output=f"{len(applicable_chaos)} applicable experiment(s)" if chaos else "",
+            output=(f"{len(applicable_chaos)} applicable experiment(s)" + preexisting_note) if chaos else "",
         )
     )
     stages.append(
         _stage(
             "Chaos Simulation",
             "PASSED" if applicable_chaos and all(c.result == "PASSED" for c in applicable_chaos) else ("FAILED" if applicable_chaos else "NOT_APPLICABLE" if chaos else "PENDING"),
-            output=f"{sum(1 for c in chaos if c.result == 'PASSED')}/{len(applicable_chaos)} passed" if applicable_chaos else "",
+            output=(f"{sum(1 for c in chaos if c.result == 'PASSED')}/{len(applicable_chaos)} passed" if applicable_chaos else "") + preexisting_note,
             evidence=[f"{c.experiment_id}: {c.fault} -> {c.result}" for c in chaos[:6]],
         )
     )
@@ -245,6 +276,16 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
     else:
         stages.append(_stage("Validation", "RUNNING" if workflow.state == WorkflowState.VALIDATING else "PENDING"))
 
+    # Proposals left pending when validation then passed were never needed.
+    latest_validation_passed = False
+    if validations:
+        top = max(v.attempt for v in validations)
+        latest_validation_passed = all(
+            v.status == "passed" for v in validations if v.attempt == top and v.stage in ("syntax", "unit_tests")
+        )
+    repairs = [
+        r for r in repairs if r.result != "superseded" and not (latest_validation_passed and r.approved is None)
+    ]
     if repairs:
         stages.append(
             _stage(
@@ -269,23 +310,63 @@ def build_pipeline(session: Session, workflow_id: str) -> dict:
     else:
         stages.append(_stage("Production Readiness", "PENDING"))
 
+    remote_ci = session.exec(
+        select(CIRun).where(CIRun.workflow_id == workflow_id, CIRun.provider == "github_actions").order_by(CIRun.timestamp.desc())
+    ).first()
     ci_event = next((g for g in reversed(guardrail_checks) if g.guardrail_id == "CICD-01"), None)
-    if ci_event:
-        stages.append(_stage("CI/CD", "PASSED" if ci_event.status == "PASSED" else "FAILED", output=ci_event.trigger_condition))
+    if remote_ci is not None and remote_ci.status not in ("not_pushed", "no_workflows"):
+        # Real GitHub Actions result for the pushed branch takes precedence over local validation.
+        remote_status = {"success": "PASSED", "failure": "FAILED", "cancelled": "FAILED", "timed_out": "FAILED",
+                         "queued": "RUNNING", "in_progress": "RUNNING"}.get(remote_ci.status, "PENDING")
+        stages.append(_stage("CI/CD", remote_status, output=f"GitHub Actions: {remote_ci.conclusion}", evidence=[remote_ci.url] if remote_ci.url else []))
+    elif ci_event:
+        stages.append(
+            _stage("CI/CD", "PASSED" if ci_event.status == "PASSED" else "FAILED", output=f"Local validation: {ci_event.trigger_condition}")
+        )
     elif not github_ops.is_configured():
         stages.append(_stage("CI/CD", "NOT_APPLICABLE", output="NOT_CONFIGURED — GITHUB_TOKEN/OWNER/REPO not set"))
     else:
         stages.append(_stage("CI/CD", "PENDING"))
 
-    pr_ops = [g for g in git_ops_rows if g.operation in ("push", "pr_created")]
-    stages.append(
-        _stage(
+    # Feature-branch delivery: branch pushed -> PR open (awaiting merge approval) -> merged into main.
+    merged_op = next((g for g in reversed(git_ops_rows) if g.operation == "merged"), None)
+    pr_op = next((g for g in reversed(git_ops_rows) if g.operation == "pr_created"), None)
+    push_op = next((g for g in reversed(git_ops_rows) if g.operation == "push"), None)
+    released_op = next((g for g in reversed(git_ops_rows) if g.operation == "released"), None)
+    staging_flow = bool(settings.staging_branch) and workflow.base_branch == settings.staging_branch
+    if released_op:
+        pr_stage = _stage("GitHub / PR", "PASSED", output=f"Released to main: {released_op.detail} ({released_op.ref[:8]})", approval_state="approved")
+    elif merged_op and staging_flow:
+        pr_stage = _stage("GitHub / PR", "AWAITING_APPROVAL",
+                          output=f"Merged into {workflow.base_branch}: {merged_op.detail}. Run and check {workflow.base_branch}, then release it to main.",
+                          approval_state="pending")
+    elif merged_op:
+        pr_stage = _stage("GitHub / PR", "PASSED", output=f"Merged: {merged_op.detail} ({merged_op.ref[:8]})", approval_state="approved")
+    elif pr_op:
+        pr_stage = _stage("GitHub / PR", "AWAITING_APPROVAL", output=f"PR #{pr_op.ref} open → {workflow.base_branch}: {pr_op.detail}",
+                          approval_state="pending")
+    elif push_op:
+        pr_stage = _stage("GitHub / PR", "RUNNING", output=f"Pushed {push_op.detail}; pull request not opened yet")
+    else:
+        pr_stage = _stage(
             "GitHub / PR",
-            "PASSED" if pr_ops else ("NOT_APPLICABLE" if not github_ops.is_configured() else "PENDING"),
-            output="; ".join(f"{g.operation}: {g.detail}" for g in pr_ops),
+            "NOT_APPLICABLE" if github_ops.resolve_target(repository) is None else "PENDING",
+            output=f"Feature branch {workflow.branch_name} → {workflow.base_branch}" if workflow.branch_name else "",
         )
-    )
+    stages.append(pr_stage)
 
-    stages.append(_stage("Final Report", "PASSED" if workflow.state == WorkflowState.COMPLETED else "PENDING"))
+    # The work is only delivered once its pull request is merged (or there is no
+    # GitHub delivery at all): until then the report waits, even after CI passed.
+    delivered = pr_stage["status"] in ("PASSED", "NOT_APPLICABLE")
+    if workflow.state == WorkflowState.COMPLETED and delivered:
+        stages.append(_stage("Final Report", "PASSED"))
+    elif workflow.state == WorkflowState.COMPLETED:
+        waiting = ("Waiting for the pull request to be approved and merged."
+                   if pr_stage["status"] == "AWAITING_APPROVAL" and not merged_op
+                   else f"Waiting for {workflow.base_branch} to be released to main." if merged_op
+                   else "Waiting for the pull request to be opened.")
+        stages.append(_stage("Final Report", "PENDING", output=waiting))
+    else:
+        stages.append(_stage("Final Report", "PENDING"))
 
     return {"workflow_id": workflow_id, "stages": stages}

@@ -12,6 +12,8 @@ EXPECTED_PROMPTS = {
     "failure_diagnosis",
     "repair_planning",
     "final_report_generation",
+    "project_design",
+    "project_generation",
 }
 
 
